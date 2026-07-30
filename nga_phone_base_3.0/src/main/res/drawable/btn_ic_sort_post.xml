@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 按发帖顺序排序：列表 + 向下箭头 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="24dp"
+        android:height="24dp"
+        android:viewportWidth="24.0"
+        android:viewportHeight="24.0">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3,6h10v2L3,8L3,6zM3,11h7v2L3,13L3,11zM3,16h7v2L3,18L3,16zM17,7h2v8.17l2.59,-2.58L23,14l-5,5 -5,-5 1.41,-1.41L17,15.17L17,7z"/>
+</vector>

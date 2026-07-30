@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <SwitchPreference
+        android:defaultValue="true"
+        android:title="@string/title_show_with_webview"
+        android:summary="@string/summary_show_with_webview"
+        android:key="@string/pref_show_with_webview"/>
+
+    <EditTextPreference
+        android:dialogTitle="USER AGENT"
+        android:title="USER AGENT"
+        android:key="preference_key_ua"/>
+
+    <SwitchPreference
+        android:defaultValue="false"
+        android:key="@string/pref_local_debug_switch"
+        android:summary="日志存放在/Download/nga_open_source/log/"
+        android:iconSpaceReserved="false"
+        android:title="本地日志" />
+
+    <Preference
+        android:key="@string/pref_check_in"
+        android:title="每日签到"/>
+
+    <SwitchPreference
+        android:defaultValue="false"
+        android:key="@string/pref_auto_check_in"
+        android:title="自动签到"
+        android:iconSpaceReserved="false" />
+
+</PreferenceScreen>

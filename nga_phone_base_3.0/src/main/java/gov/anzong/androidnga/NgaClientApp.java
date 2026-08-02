@@ -19,6 +19,7 @@ import java.io.File;
 import java.io.IOException;
 
 import gov.anzong.androidnga.activity.compose.board.ForumBoardViewModel;
+import gov.anzong.androidnga.activity.compose.zhihu.data.ZhihuPreloader;
 import gov.anzong.androidnga.base.logger.Logger;
 import gov.anzong.androidnga.base.util.ContextUtils;
 import gov.anzong.androidnga.base.util.PreferenceUtils;
@@ -38,6 +39,9 @@ public class NgaClientApp extends Application {
 
     /** 缓存更新的启动延迟，让出冷启动阶段的资源 */
     private static final long DELAY_UPDATE_CACHE = 5000L;
+
+    /** 知乎预热比帖子缓存更晚一点，避免和启动、缓存更新抢资源 */
+    private static final long DELAY_PRELOAD_ZHIHU = 8000L;
 
     private static boolean sNewVersion;
 
@@ -144,6 +148,11 @@ public class NgaClientApp extends Application {
                             () -> TopicCacheUpdateTask.executeIfExpired(hasUpdate ->
                                     Logger.d(TAG, "topic cache updated: " + hasUpdate)),
                             DELAY_UPDATE_CACHE);
+                    // 预热知乎热搜和前几条的回答，用户点进去时直接就有内容。
+                    // 内部自己判断缓存是否过期，不会每次都真的联网。
+                    ThreadUtils.postOnMainThreadDelay(
+                            () -> ZhihuPreloader.INSTANCE.preload(NgaClientApp.this),
+                            DELAY_PRELOAD_ZHIHU);
                 }
             }
 

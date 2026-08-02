@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,8 +31,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.justwen.androidnga.ui.compose.widget.TabLayoutWithPager
+import gov.anzong.androidnga.R
 import gov.anzong.androidnga.activity.compose.board.ForumBoardGridContent
 import gov.anzong.androidnga.activity.compose.board.ForumBoardViewModel
+import gov.anzong.androidnga.arouter.ARouterConstants
 import gov.anzong.androidnga.core.board.data.BoardEntity
 
 /**
@@ -76,13 +80,23 @@ fun MainBottomBar(current: MainTab, onSelect: (MainTab) -> Unit) {
                     selected = tab == current,
                     onClick = { onSelect(tab) },
                     icon = {
+                        // NavigationBarItem 内部图标与文字的间距是固定的，改不了；
+                        // 给图标加上边距把它整体压下来，视觉上就和文字贴近了
                         Icon(
                             imageVector = tab.icon,
                             contentDescription = tab.label,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier
+                                .padding(top = 6.dp)
+                                .size(22.dp)
                         )
                     },
-                    label = { Text(text = tab.label, fontSize = 12.sp) },
+                    label = {
+                        Text(
+                            text = tab.label,
+                            fontSize = 12.sp,
+                            modifier = Modifier.offset(y = (-3).dp)
+                        )
+                    },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = selectedColor,
                         selectedTextColor = selectedColor,
@@ -123,11 +137,22 @@ fun ForumTabContent(forumBoardViewModel: ForumBoardViewModel) {
         return
     }
 
+    // 自定义内容源入口：非 NGA 板块，点进去打开对应页面。以后要加内容源就扩充这个列表。
+    val customSources = listOf(
+        CustomSource("知乎热搜", ARouterConstants.ACTIVITY_ZHIHU_HOT, R.drawable.ic_zhihu),
+        CustomSource("论文阅读", ARouterConstants.ACTIVITY_PAPER_LIST, R.drawable.ic_paper)
+    )
+    val customTabName = "网事闲聊"
+
     TabLayoutWithPager(
-        tabs = groups.map { it.name },
+        tabs = groups.map { it.name } + customTabName,
         initialPage = 0,
         fixed = true
     ) { index ->
-        ForumBoardGridContent(groups[index], forumBoardViewModel)
+        if (index == groups.size) {
+            CustomSourceGridView(customSources)
+        } else {
+            ForumBoardGridContent(groups[index], forumBoardViewModel)
+        }
     }
 }

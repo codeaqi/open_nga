@@ -65,7 +65,23 @@ class SearchViewModel : ViewModel() {
 
     var searchTopicWithContent: Boolean = false
 
+    /** 从哪个板块进来的，0 表示没有 fid（合集板块就是这种，靠 stid 标识） */
     var fid: Int = 0
+        set(value) {
+            field = value
+            // 没有任何板块上下文时不能按「当前板块」搜，否则界面显示选了板块
+            // 实际却搜了全站，和用户预期不符
+            if (!hasBoardContext) {
+                searchTopicMode = SEARCH_MODE_TOPIC_ALL
+            }
+        }
+
+    /** 合集板块（如收藏里的子版面）fid 为 0，靠 stid 标识 */
+    var stid: Int = 0
+
+    /** 是否支持按当前板块搜索。fid 和 stid 都没有才算没有上下文 */
+    val hasBoardContext: Boolean
+        get() = fid != 0 || stid != 0
 
     var keyList = MutableLiveData<List<String>>()
 
@@ -141,8 +157,20 @@ class SearchViewModel : ViewModel() {
             .build(ARouterConstants.ACTIVITY_TOPIC_LIST)
             .withInt("content", if (searchTopicWithContent) 1 else 0)
             .withString("key", query)
-        if (searchTopicMode == SEARCH_MODE_TOPIC_CURRENT && fid != 0) {
-            postcard.withInt("fid", fid)
+        if (searchTopicMode == SEARCH_MODE_TOPIC_CURRENT) {
+            if (!hasBoardContext) {
+                // 选了当前板块却没有板块信息，说明入口没带过来。
+                // 与其静默按全站搜（结果会混进别的板块），不如提示用户。
+                ToastUtils.info("当前没有板块信息，请从板块内进入搜索")
+                return
+            }
+            // 合集板块 fid 为 0，要靠 stid 限定范围，两个都按需带上
+            if (fid != 0) {
+                postcard.withInt("fid", fid)
+            }
+            if (stid != 0) {
+                postcard.withInt(ParamKey.KEY_STID, stid)
+            }
         }
         postcard.navigation()
     }

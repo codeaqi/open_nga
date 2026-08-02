@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  论文阅读图标。深红底色 + 白色文稿造型，
+  取自 arXiv 的品牌红，和知乎蓝区分开。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- 底板：arXiv 红 -->
+    <path
+        android:fillColor="#B31B1B"
+        android:pathData="M10,2h28a8,8 0 0 1 8,8v28a8,8 0 0 1 -8,8h-28a8,8 0 0 1 -8,-8v-28a8,8 0 0 1 8,-8z" />
+
+    <!-- 纸张，右上角折角 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M15,11h13l6,6v20a1.5,1.5 0 0 1 -1.5,1.5h-17.5a1.5,1.5 0 0 1 -1.5,-1.5v-24.5a1.5,1.5 0 0 1 1.5,-1.5z" />
+
+    <!-- 折角阴影 -->
+    <path
+        android:fillColor="#E0C4C4"
+        android:pathData="M28,11l6,6h-6z" />
+
+    <!-- 正文线条 -->
+    <path
+        android:fillColor="#B31B1B"
+        android:pathData="M18,22h12v2h-12zM18,26.5h12v2h-12zM18,31h8v2h-8z" />
+
+</vector>

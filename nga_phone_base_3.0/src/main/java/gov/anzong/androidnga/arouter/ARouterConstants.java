@@ -19,6 +19,17 @@ public class ARouterConstants {
 
     public static final String ACTIVITY_SEARCH = "/activity/search";
 
+    public static final String ACTIVITY_ZHIHU_HOT = "/activity/zhihu_hot";
+
+    public static final String ACTIVITY_ZHIHU_DETAIL = "/activity/zhihu_detail";
+
+    public static final String ACTIVITY_PAPER_LIST = "/activity/paper_list";
+
+    public static final String ACTIVITY_PAPER_DETAIL = "/activity/paper_detail";
+
+    public static final String ACTIVITY_PAPER_FIGURE = "/activity/paper_figure";
+
+
     public static final String ACTIVITY_NOTIFICATION = "/activity/notification";
 
     public static final String ACTIVITY_MESSAGE_LIST = com.justwen.androidnga.base.activity.ARouterConstants.ACTIVITY_MESSAGE_LIST;

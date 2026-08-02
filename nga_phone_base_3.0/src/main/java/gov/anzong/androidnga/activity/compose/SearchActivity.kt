@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CutCornerShape
@@ -51,6 +53,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,6 +71,7 @@ class SearchActivity : BaseComposeActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        viewModel.stid = intent.getIntExtra("stid", 0)
         viewModel.fid = intent.getIntExtra("fid", 0)
         super.onCreate(savedInstanceState)
     }
@@ -205,7 +209,8 @@ class SearchActivity : BaseComposeActivity() {
             Row(
                 Modifier
                     .background(Color.White, shape = RoundedCornerShape(8.dp))
-                    .height(30.dp)
+                    .heightIn(min = 30.dp)
+                    .widthIn(max = 180.dp)
                     .clickable(onClick = { viewModel.query(this@SearchActivity, text) })
                     .padding(all = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -213,12 +218,14 @@ class SearchActivity : BaseComposeActivity() {
                 Text(
                     text = text,
                     modifier = Modifier.padding(start = 8.dp, end = 8.dp),
-                    color = Color.Gray
+                    color = Color.Gray,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Divider(
                     modifier = Modifier
                         .width(1.dp)
-                        .fillMaxHeight(), color = Color.Gray
+                        .height(14.dp), color = Color.Gray
                 )
                 Spacer(modifier = Modifier
                     .width(8.dp)
@@ -303,8 +310,11 @@ class SearchActivity : BaseComposeActivity() {
 
     @Composable
     fun SearchTopicOptionView() {
-        var modeIndex by remember { mutableIntStateOf(0) }
         val modeData = viewModel.searchTopicData
+        // 没有板块上下文（从主界面顶栏进来）时只能全站搜，默认就选「全部板块」
+        var modeIndex by remember {
+            mutableIntStateOf(if (viewModel.hasBoardContext) 0 else 1)
+        }
 
         Column(modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)) {
             Text(
@@ -320,19 +330,28 @@ class SearchActivity : BaseComposeActivity() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 modeData.forEachIndexed { index, pair ->
+                    // 「当前板块」在没有 fid 时不可选，置灰避免误导
+                    val enabled = viewModel.hasBoardContext ||
+                            pair.second != SearchViewModel.SEARCH_MODE_TOPIC_CURRENT
                     Row(
                         modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() },
                             indication = null,
+                            enabled = enabled,
                             onClick = {
                                 modeIndex = index
                                 viewModel.searchTopicMode = pair.second
                             }), verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RadioButton(selected = index == modeIndex, onClick = null)
+                        RadioButton(
+                            selected = index == modeIndex,
+                            onClick = null,
+                            enabled = enabled
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = pair.first,
                             fontSize = 12.sp,
+                            color = if (enabled) Color.Unspecified else Color.Gray,
                             modifier = Modifier.wrapContentSize(
                                 Alignment.CenterStart
                             )

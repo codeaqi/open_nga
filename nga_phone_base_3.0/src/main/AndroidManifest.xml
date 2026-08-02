@@ -178,6 +178,17 @@
             android:name=".activity.compose.SearchActivity"
             android:label="@string/search" />
 
+        <activity android:name=".activity.compose.zhihu.ZhihuHotActivity" />
+
+        <activity android:name=".activity.compose.zhihu.ZhihuDetailActivity" />
+
+        <activity android:name=".activity.compose.paper.PaperListActivity" />
+
+        <activity android:name=".activity.compose.paper.PaperDetailActivity" />
+
+        <activity android:name=".activity.compose.paper.PaperFigureActivity" />
+
+
         <activity
             android:name=".activity.AboutActivity"
             android:label="@string/title_about" />

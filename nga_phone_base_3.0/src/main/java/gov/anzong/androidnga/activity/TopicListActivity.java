@@ -130,9 +130,12 @@ public class TopicListActivity extends BaseActivity {
                 showTwentyFourList();
                 break;
             case R.id.menu_search:
+                // 合集板块（如收藏里的 stid 板块）fid 为 0，只传 fid 的话
+                // 「当前板块」搜索会退化成全站搜，所以 stid 也要带上
                 ARouter.getInstance()
                         .build(ARouterConstants.ACTIVITY_SEARCH)
                         .withInt("fid", mRequestParam.fid)
+                        .withInt("stid", mRequestParam.stid)
                         .navigation(this);
                 break;
             default:

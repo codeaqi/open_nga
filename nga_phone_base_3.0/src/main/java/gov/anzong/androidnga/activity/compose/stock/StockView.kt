@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.Checkbox
+import androidx.compose.material.LocalTextStyle
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
@@ -28,6 +29,7 @@ import androidx.compose.material.TextButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -35,12 +37,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.sp
 import gov.anzong.androidnga.activity.compose.stock.data.DividendInfo
 import gov.anzong.androidnga.activity.compose.stock.data.StockInfo
@@ -74,6 +81,25 @@ fun StockView(viewModel: StockViewModel) {
     val stocks by viewModel.stockLiveData.observeAsState(emptyList())
     val targets by viewModel.targetLiveData.observeAsState(emptyMap())
     val dividends by viewModel.dividendLiveData.observeAsState(emptyMap())
+
+    // 只在本页真正可见且 app 在前台时轮询：切到别的 Tab 或退到后台都会停
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> viewModel.onResume()
+                Lifecycle.Event.ON_PAUSE -> viewModel.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        // 进入本页时先刷一次并起轮询（此时 ON_RESUME 可能已经过去了）
+        viewModel.onResume()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onPause()
+        }
+    }
     var showAddDialog by remember { mutableStateOf(false) }
     var pendingRemove by remember { mutableStateOf<StockInfo?>(null) }
     var pendingTarget by remember { mutableStateOf<StockInfo?>(null) }
@@ -170,6 +196,7 @@ fun StockView(viewModel: StockViewModel) {
         TargetPriceDialog(
             stock = stock,
             target = targets[stock.code] ?: StockTarget(),
+            dividend = dividends[stock.code],
             onDismiss = { pendingTarget = null },
             onConfirm = {
                 viewModel.saveTarget(stock.code, it)
@@ -186,6 +213,7 @@ fun StockView(viewModel: StockViewModel) {
 private fun TargetPriceDialog(
     stock: StockInfo,
     target: StockTarget,
+    dividend: DividendInfo?,
     onDismiss: () -> Unit,
     onConfirm: (StockTarget) -> Unit
 ) {
@@ -196,6 +224,19 @@ private fun TargetPriceDialog(
     var full by remember { mutableStateOf(display(target.fullPrice)) }
     var note by remember { mutableStateOf(target.note) }
     var showNote by remember { mutableStateOf(target.showNote) }
+    var autoCalc by remember { mutableStateOf(target.autoCalc) }
+    var targetYield by remember {
+        mutableStateOf(String.format("%.2f", target.targetYield).trimEnd('0').trimEnd('.'))
+    }
+
+    val perShare = dividend?.perShareDividend ?: 0f
+    val hasDividend = perShare > 0f
+    // 打开自动计算时，三档价格随目标股息率实时算出来
+    val calculated = if (autoCalc) {
+        StockTarget.calculate(perShare, targetYield.toFloatOrNull() ?: 0f)
+    } else {
+        null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -208,9 +249,22 @@ private fun TargetPriceDialog(
                     color = ColorFlat,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
-                PriceField(StockTarget.Level.BUILD, build) { build = it }
-                PriceField(StockTarget.Level.ADD, add) { add = it }
-                PriceField(StockTarget.Level.FULL, full) { full = it }
+
+                AutoCalcSection(
+                    hasDividend = hasDividend,
+                    perShare = perShare,
+                    autoCalc = autoCalc,
+                    targetYield = targetYield,
+                    calculated = calculated,
+                    onToggle = { autoCalc = it },
+                    onYieldChange = { targetYield = it }
+                )
+
+                if (!autoCalc) {
+                    PriceField(StockTarget.Level.BUILD, build) { build = it }
+                    PriceField(StockTarget.Level.ADD, add) { add = it }
+                    PriceField(StockTarget.Level.FULL, full) { full = it }
+                }
 
                 OutlinedTextField(
                     value = note,
@@ -235,13 +289,17 @@ private fun TargetPriceDialog(
         },
         confirmButton = {
             TextButton(onClick = {
+                // 自动计算时存算出来的价格，这样列表和提醒逻辑不用关心是手填还是算的
                 onConfirm(
                     StockTarget(
-                        buildPrice = build.toFloatOrNull() ?: 0f,
-                        addPrice = add.toFloatOrNull() ?: 0f,
-                        fullPrice = full.toFloatOrNull() ?: 0f,
+                        buildPrice = calculated?.first ?: build.toFloatOrNull() ?: 0f,
+                        addPrice = calculated?.second ?: add.toFloatOrNull() ?: 0f,
+                        fullPrice = calculated?.third ?: full.toFloatOrNull() ?: 0f,
                         note = note.trim(),
-                        showNote = showNote
+                        showNote = showNote,
+                        autoCalc = autoCalc,
+                        targetYield = targetYield.toFloatOrNull()
+                            ?: StockTarget.DEFAULT_TARGET_YIELD
                     )
                 )
             }) { Text("保存") }
@@ -250,6 +308,115 @@ private fun TargetPriceDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
+}
+
+/**
+ * 按目标股息率自动推算三档价格的开关与预览。
+ *
+ * 建仓价 = 每股股息 / 目标股息率，加仓、满仓依次再降 10%。
+ * 没有分红数据的股票（不分红或还没拉到）不能用，开关置灰。
+ */
+@Composable
+private fun AutoCalcSection(
+    hasDividend: Boolean,
+    perShare: Float,
+    autoCalc: Boolean,
+    targetYield: String,
+    calculated: Triple<Float, Float, Float>?,
+    onToggle: (Boolean) -> Unit,
+    onYieldChange: (String) -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = hasDividend) { onToggle(!autoCalc) }
+    ) {
+        Checkbox(
+            checked = autoCalc,
+            onCheckedChange = { onToggle(it) },
+            enabled = hasDividend
+        )
+        Text(
+            text = "按股息率自动计算",
+            fontSize = 14.sp,
+            color = if (hasDividend) MaterialTheme.colors.onSurface else ColorFlat
+        )
+    }
+
+    if (!hasDividend) {
+        Text(
+            text = "该股无分红数据，无法自动计算",
+            fontSize = 11.sp,
+            color = ColorFlat,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        return
+    }
+
+    if (!autoCalc) {
+        return
+    }
+
+    OutlinedTextField(
+        value = targetYield,
+        onValueChange = onYieldChange,
+        label = { Text("建仓时的目标股息率 %") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    )
+
+    if (calculated == null) {
+        Text(
+            text = "请输入大于 0 的股息率",
+            fontSize = 11.sp,
+            color = ColorUp,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        return
+    }
+
+    Text(
+        text = "每股股息 ${String.format("%.3f", perShare)} 元，加仓/满仓依次再降 10%",
+        fontSize = 11.sp,
+        color = ColorFlat
+    )
+    Column(modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+        CalcRow(StockTarget.Level.BUILD, calculated.first, perShare)
+        CalcRow(StockTarget.Level.ADD, calculated.second, perShare)
+        CalcRow(StockTarget.Level.FULL, calculated.third, perShare)
+    }
+}
+
+/** 预览一档算出来的价格，顺带标出在该价位的股息率 */
+@Composable
+private fun CalcRow(level: StockTarget.Level, price: Float, perShare: Float) {
+    val yieldAt = if (price > 0f) perShare / price * 100 else 0f
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "${level.percent}%${level.label}",
+            fontSize = 13.sp,
+            color = ColorFlat,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = String.format("%.2f", price),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colors.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = String.format("股息%.2f%%", yieldAt),
+            fontSize = 12.sp,
+            color = ColorDividend,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1.2f)
+        )
+    }
 }
 
 @Composable
@@ -309,10 +476,18 @@ private fun StockItem(
             ) {
                 Text(
                     text = stock.name,
-                    fontSize = 16.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
-                    color = MaterialTheme.colors.onBackground
+                    color = MaterialTheme.colors.onBackground,
+                    // 光晕：同色柔光扩散一圈，让名字更立体
+                    style = LocalTextStyle.current.copy(
+                        shadow = Shadow(
+                            color = MaterialTheme.colors.onBackground.copy(alpha = 0.35f),
+                            offset = Offset.Zero,
+                            blurRadius = 12f
+                        )
+                    )
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(

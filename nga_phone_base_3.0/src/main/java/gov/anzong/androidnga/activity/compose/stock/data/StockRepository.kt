@@ -111,7 +111,13 @@ object StockRepository {
                         fullPrice = obj.getFloatValue("fullPrice"),
                         note = obj.getString("note") ?: "",
                         // 老数据没有这个字段，默认显示
-                        showNote = obj.getBooleanValue("showNote") || !obj.containsKey("showNote")
+                        showNote = obj.getBooleanValue("showNote") || !obj.containsKey("showNote"),
+                        autoCalc = obj.getBooleanValue("autoCalc"),
+                        targetYield = if (obj.containsKey("targetYield")) {
+                            obj.getFloatValue("targetYield")
+                        } else {
+                            StockTarget.DEFAULT_TARGET_YIELD
+                        }
                     )
                 }
                 result
@@ -179,6 +185,8 @@ object StockRepository {
                 this["fullPrice"] = target.fullPrice
                 this["note"] = target.note
                 this["showNote"] = target.showNote
+                this["autoCalc"] = target.autoCalc
+                this["targetYield"] = target.targetYield
             }
         }
         PreferenceUtils.putData(KEY_STOCK_TARGET_JSON, root.toJSONString())

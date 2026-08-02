@@ -39,6 +39,26 @@ allprojects {
 
 }
 
+// kapt 注解处理器（如 ButterKnife 的 RScanner）在 JDK 16+ 无法访问 javac 内部包，
+// 需显式导出，否则报错 "superclass access check failed ... com.sun.tools.javac.tree.TreeScanner"
+subprojects {
+    plugins.withId('kotlin-kapt') {
+        kapt {
+            javacOptions {
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED")
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED")
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED")
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED")
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED")
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED")
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED")
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED")
+                option("-J--add-exports", "jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED")
+            }
+        }
+    }
+}
+
 task clean(type: Delete) {
     delete rootProject.buildDir
 }

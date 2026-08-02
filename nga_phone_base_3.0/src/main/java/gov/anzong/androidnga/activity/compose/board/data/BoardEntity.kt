@@ -25,6 +25,12 @@ class BoardEntity : JavaBean {
 
     var head :String? = null
 
+    /**
+     * 借用其它版面的图标。合集（stid）没有自己的图标，可以指定一个版面 fid 来取图。
+     * 为 0 表示按自身的 fid/stid 取图。
+     */
+    var iconFid: Int = 0
+
     @IntDef(BoardType.BOARD, BoardType.ASSEMBLE, BoardType.GROUP, BoardType.BOOKMARK)
     annotation class BoardType {
         companion object {

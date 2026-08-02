@@ -112,7 +112,10 @@ internal fun ForumBoardGridItemView(
 }
 
 private fun getResUrl(board: BoardEntity): String {
-    val url = if (board.stid != 0) {
+    // 指定了借用图标就按那个版面取，否则合集用 stid、普通版面用 fid
+    val url = if (board.iconFid != 0) {
+        String.format(ApiConstants.URL_BOARD_ICON, board.iconFid)
+    } else if (board.stid != 0) {
         String.format(ApiConstants.URL_BOARD_ICON_STID, board.stid)
     } else {
         String.format(ApiConstants.URL_BOARD_ICON, board.fid)
@@ -122,11 +125,12 @@ private fun getResUrl(board: BoardEntity): String {
 
 
 private fun getResId(board: BoardEntity): Int {
-    if (board.stid != 0) {
+    val fid = if (board.iconFid != 0) board.iconFid else board.fid
+    // 合集本身没有内置图标，除非借用了别的版面
+    if (board.iconFid == 0 && board.stid != 0) {
         return 0
     }
 
-    val fid = board.fid
     val resName = if (fid > 0) "p$fid" else "p_" + abs(fid)
     return ContextUtils.getResources()
         .getIdentifier(resName, "drawable", ContextUtils.getContext().packageName)

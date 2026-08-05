@@ -131,8 +131,8 @@ public class NgaClientApp extends Application {
     }
 
     /**
-     * 增量更新已缓存的帖子。冷启动和从后台切回前台都会走这里，
-     * 内部按时间间隔判断是否真的需要更新；延迟执行以错开启动高峰。
+     * 增量更新已缓存的帖子。调度器只在前台跑，每 15 秒一个请求慢慢轮转，
+     * 退到后台就暂停、进度保留；延迟启动以错开启动高峰。
      */
     private void registerForegroundCacheUpdate() {
         registerActivityLifecycleCallbacks(new SimpleActivityLifecycleCallbacks() {
@@ -145,8 +145,7 @@ public class NgaClientApp extends Application {
                 if (mStartedCount == 1) {
                     // 数量从 0 变 1，说明刚回到前台（冷启动首次打开界面也属于这种情况）
                     ThreadUtils.postOnMainThreadDelay(
-                            () -> TopicCacheUpdateTask.executeIfExpired(hasUpdate ->
-                                    Logger.d(TAG, "topic cache updated: " + hasUpdate)),
+                            TopicCacheUpdateTask::onEnterForeground,
                             DELAY_UPDATE_CACHE);
                     // 预热知乎热搜和前几条的回答，用户点进去时直接就有内容。
                     // 内部自己判断缓存是否过期，不会每次都真的联网。
@@ -159,6 +158,9 @@ public class NgaClientApp extends Application {
             @Override
             public void onActivityStopped(@NonNull Activity activity) {
                 mStartedCount--;
+                if (mStartedCount == 0) {
+                    TopicCacheUpdateTask.onEnterBackground();
+                }
             }
         });
     }

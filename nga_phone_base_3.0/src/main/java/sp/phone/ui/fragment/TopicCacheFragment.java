@@ -85,10 +85,35 @@ public class TopicCacheFragment extends TopicSearchFragment implements View.OnLo
             case R.id.menu_cache_import:
                 mPresenter.showFileChooser(this);
                 break;
+            case R.id.menu_cache_update:
+                updateCacheTopics();
+                break;
             default:
                 return super.onOptionsItemSelected(item);
         }
         return true;
+    }
+
+    /**
+     * 手动检查所有缓存帖子有没有新回复。
+     *
+     * 后台调度器是限速的（每 15 秒一个请求，慢慢轮转），这里是用户主动触发的全量检查，
+     * 不限速地把所有帖子跑一遍，图的是立刻出结果。执行期间调度器会自动让路。
+     */
+    private void updateCacheTopics() {
+        ToastUtils.info("正在检查新回复…");
+        TopicCacheUpdateTask.execute(hasUpdate -> {
+            if (!isAdded()) {
+                return;
+            }
+            if (hasUpdate) {
+                ToastUtils.success("有新回复，已更新");
+                // 重新读一遍缓存列表，新回复角标才会显示出来
+                mPresenter.loadPage(1, mRequestParam);
+            } else {
+                ToastUtils.info("没有新回复");
+            }
+        });
     }
 
     @Override

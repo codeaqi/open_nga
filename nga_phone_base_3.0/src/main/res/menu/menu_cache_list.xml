@@ -3,6 +3,11 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/menu_cache_update"
+        android:title="检查新回复"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/menu_cache_import"
         android:title="导入缓存"
         app:showAsAction="never" />

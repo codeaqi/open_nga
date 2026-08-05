@@ -1,5 +1,7 @@
 package sp.phone.task;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.util.ArrayMap;
 
 import com.alibaba.fastjson.JSON;
@@ -12,7 +14,6 @@ import java.util.List;
 import java.util.Map;
 
 import gov.anzong.androidnga.base.util.ContextUtils;
-import gov.anzong.androidnga.base.util.PreferenceUtils;
 import gov.anzong.androidnga.base.util.ThreadUtils;
 import gov.anzong.androidnga.common.util.NLog;
 import gov.anzong.androidnga.http.OnHttpCallBack;
@@ -23,8 +24,18 @@ import sp.phone.param.ArticleListParam;
 import sp.phone.rxjava.RxLifecycleProvider;
 
 /**
- * 增量更新已缓存的帖子：只补齐新增的页，用于帖子有新回复的场景。
- * 串行执行，静默运行，不打扰用户。
+ * 已缓存帖子的增量更新，只补新增的页。
+ *
+ * 两种模式：
+ *
+ * 1. **限速调度**（默认）：app 在前台时每 {@link #TICK_INTERVAL} 只发一个请求，
+ *    按 {@link CacheUpdateQueue} 的「最久没检查优先」顺序轮转。目的是把请求摊平在
+ *    时间轴上，而不是回到前台时集中打一批。退到后台就暂停，进度不丢。
+ *
+ * 2. **手动全量**：用户点「检查新回复」时不限速地跑完所有帖子。这里图的是立刻出结果，
+ *    按 15 秒一个的话几十个帖子要等十几分钟，没法用。
+ *
+ * 两种模式互斥：手动跑的时候调度器让路，避免同时写同一个 json。
  */
 public class TopicCacheUpdateTask {
 
@@ -32,78 +43,91 @@ public class TopicCacheUpdateTask {
 
     private static final int ROWS_PER_PAGE = 20;
 
-    /** 两次自动更新之间的最小间隔 */
-    private static final long MIN_UPDATE_INTERVAL = 60 * 60 * 1000L;
+    /** 限速模式下两个请求之间的间隔 */
+    private static final long TICK_INTERVAL = 15 * 1000L;
 
-    private static final String KEY_LAST_UPDATE_TIME = "topic_cache_last_update_time";
+    /** 没有帖子到期时最多睡这么久，纯本地判断，不发请求 */
+    private static final long IDLE_RECHECK_INTERVAL = 5 * 60 * 1000L;
 
-    private final ArticleListModel mModel = new ArticleListModel();
+    /** 单个帖子一轮最多补几页，避免一个热帖独占队列让其他帖挨饿，剩下的下轮继续 */
+    private static final int MAX_PAGES_PER_TOPIC = 5;
 
-    private final RxLifecycleProvider mLifecycleProvider = new RxLifecycleProvider();
-
-    private final Map<String, String> mHeaderMap = new ArrayMap<>();
-
-    /** 待更新的帖子队列 */
-    private List<CachedTopic> mTopics;
-
-    private int mTopicIndex;
-
-    /** 当前帖子正在下载的页码 */
-    private int mCurrentPage;
-
-    /** 当前帖子需要下载到第几页 */
-    private int mTargetPage;
-
-    private OnUpdateFinishedListener mListener;
+    /** 连续失败到这个次数就停下，等下次回前台再恢复，免得没网时空转 */
+    private static final int MAX_FAIL_STREAK = 3;
 
     public interface OnUpdateFinishedListener {
         void onUpdateFinished(boolean hasUpdate);
     }
 
-    private static class CachedTopic {
+    private static class CachedTopic implements CacheUpdateQueue.Item {
+
         int tid;
+
         String topicInfo;
+
         int cachedPage;
+
+        long lastCheckTime;
+
+        long lastChangeTime;
+
+        @Override
+        public long getLastCheckTime() {
+            return lastCheckTime;
+        }
+
+        @Override
+        public long getLastChangeTime() {
+            return lastChangeTime;
+        }
     }
 
-    private boolean mHasUpdate;
+    // ==================== 调度器入口 ====================
 
-    /** 是否有更新任务正在执行，避免启动和切前台同时触发导致重复请求 */
-    private static volatile boolean sRunning;
+    private static final Handler sHandler = new Handler(Looper.getMainLooper());
 
-    public static void execute(OnUpdateFinishedListener listener) {
-        if (sRunning) {
-            NLog.d(TAG, "update already running, skip");
+    private static TopicCacheUpdateTask sScheduler;
+
+    private static boolean sForeground;
+
+    /** 手动全量占用中，调度器让路 */
+    private static boolean sManualRunning;
+
+    /** app 回到前台：恢复限速更新 */
+    public static void onEnterForeground() {
+        sForeground = true;
+        if (sManualRunning) {
             return;
         }
-        sRunning = true;
-        new TopicCacheUpdateTask().start(listener);
+        if (sScheduler == null) {
+            sScheduler = new TopicCacheUpdateTask();
+        }
+        sScheduler.resume();
+    }
+
+    /** app 退到后台：暂停，队列和游标都留着，回前台接着跑 */
+    public static void onEnterBackground() {
+        sForeground = false;
+        if (sScheduler != null) {
+            sScheduler.pause();
+        }
     }
 
     /**
-     * 距上次更新超过 {@link #MIN_UPDATE_INTERVAL} 才执行，用于回到前台时的检查
+     * 用户主动触发的全量更新：不限速，把所有缓存帖检查一遍。
      */
-    public static void executeIfExpired(OnUpdateFinishedListener listener) {
-        long last = PreferenceUtils.getData(KEY_LAST_UPDATE_TIME, 0L);
-        long elapsed = System.currentTimeMillis() - last;
-        if (elapsed < MIN_UPDATE_INTERVAL) {
-            NLog.d(TAG, "last update was " + elapsed / 1000 + "s ago, skip");
+    public static void execute(OnUpdateFinishedListener listener) {
+        if (sManualRunning) {
+            NLog.d(TAG, "manual update already running, skip");
             return;
         }
-        execute(listener);
-    }
-
-    private void start(OnUpdateFinishedListener listener) {
-        mListener = listener;
-        mModel.setLifecycleProvider(mLifecycleProvider);
-        // 扫描磁盘放到子线程，避免阻塞启动
-        ThreadUtils.postOnSubThread(() -> {
-            mTopics = scanCachedTopics();
-            ThreadUtils.postOnMainThread(() -> {
-                mTopicIndex = 0;
-                nextTopic();
-            });
-        });
+        sManualRunning = true;
+        if (sScheduler != null) {
+            sScheduler.pause();
+        }
+        TopicCacheUpdateTask task = new TopicCacheUpdateTask();
+        task.mPaced = false;
+        task.startFull(listener);
     }
 
     /**
@@ -129,12 +153,282 @@ public class TopicCacheUpdateTask {
         });
     }
 
+    // ==================== 实例状态 ====================
+
+    private final ArticleListModel mModel = new ArticleListModel();
+
+    private final RxLifecycleProvider mLifecycleProvider = new RxLifecycleProvider();
+
+    private final Map<String, String> mHeaderMap = new ArrayMap<>();
+
+    private final Runnable mTick = this::tick;
+
+    private final Runnable mRescan = this::resume;
+
+    /** true=限速调度，false=手动全量 */
+    private boolean mPaced = true;
+
+    private List<CachedTopic> mQueue;
+
+    /** 正在补页的帖子，为 null 表示该挑下一个了 */
+    private CachedTopic mCurrent;
+
+    private int mCurrentPage;
+
+    private int mTargetPage;
+
+    private int mFailStreak;
+
+    /** 手动全量模式的游标 */
+    private int mTopicIndex;
+
+    private boolean mHasUpdate;
+
+    private OnUpdateFinishedListener mListener;
+
+    // ==================== 限速调度 ====================
+
+    private void resume() {
+        if (!sForeground || sManualRunning) {
+            return;
+        }
+        mFailStreak = 0;
+        sHandler.removeCallbacks(mTick);
+        sHandler.removeCallbacks(mRescan);
+        if (mQueue != null) {
+            scheduleTick(0);
+            return;
+        }
+        mModel.setLifecycleProvider(mLifecycleProvider);
+        // 扫描磁盘放到子线程，避免阻塞启动
+        ThreadUtils.postOnSubThread(() -> {
+            List<CachedTopic> topics = scanCachedTopics();
+            ThreadUtils.postOnMainThread(() -> {
+                mQueue = topics;
+                NLog.d(TAG, "scheduler queue size=" + topics.size());
+                scheduleTick(0);
+            });
+        });
+    }
+
+    private void pause() {
+        sHandler.removeCallbacks(mTick);
+        sHandler.removeCallbacks(mRescan);
+    }
+
+    private void scheduleTick(long delay) {
+        if (!sForeground || sManualRunning) {
+            return;
+        }
+        sHandler.removeCallbacks(mTick);
+        sHandler.postDelayed(mTick, delay);
+    }
+
+    private void tick() {
+        if (!sForeground || sManualRunning || mQueue == null) {
+            return;
+        }
+        // 还在补当前帖子的后续页，继续补——补页同样走限速通道，
+        // 否则一个新增几十页的热帖会瞬间打出几十个请求
+        if (mCurrent != null) {
+            loadPage(mCurrent);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        CachedTopic next = CacheUpdateQueue.pickNext(mQueue, now);
+        if (next == null) {
+            // 这一轮都查完了。睡到最近一个到期时刻，醒来重扫一遍磁盘，
+            // 把这期间新缓存的帖子也纳进队列
+            long delay = CacheUpdateQueue.nextDueDelay(mQueue, now, IDLE_RECHECK_INTERVAL);
+            delay = Math.min(Math.max(delay, TICK_INTERVAL), IDLE_RECHECK_INTERVAL);
+            NLog.d(TAG, "nothing due, rescan in " + delay / 1000 + "s");
+            mQueue = null;
+            sHandler.postDelayed(mRescan, delay);
+            return;
+        }
+        mCurrent = next;
+        // 从已缓存的最后一页开始重下，那一页通常未满，可能有新回复
+        mCurrentPage = next.cachedPage;
+        mTargetPage = 0;
+        loadPage(next);
+    }
+
+    // ==================== 手动全量 ====================
+
+    private void startFull(OnUpdateFinishedListener listener) {
+        mListener = listener;
+        mModel.setLifecycleProvider(mLifecycleProvider);
+        ThreadUtils.postOnSubThread(() -> {
+            List<CachedTopic> topics = scanCachedTopics();
+            ThreadUtils.postOnMainThread(() -> {
+                mQueue = topics;
+                mTopicIndex = 0;
+                nextTopic();
+            });
+        });
+    }
+
+    private void nextTopic() {
+        if (mQueue == null || mTopicIndex >= mQueue.size()) {
+            finishFull();
+            return;
+        }
+        CachedTopic topic = mQueue.get(mTopicIndex);
+        mCurrent = topic;
+        mCurrentPage = topic.cachedPage;
+        mTargetPage = 0;
+        loadPage(topic);
+    }
+
+    private void finishFull() {
+        sManualRunning = false;
+        if (mListener != null) {
+            mListener.onUpdateFinished(mHasUpdate);
+        }
+        // 手动跑完，把调度器放回去接着限速轮转
+        if (sForeground) {
+            onEnterForeground();
+        }
+    }
+
+    // ==================== 两种模式共用 ====================
+
+    private void loadPage(CachedTopic topic) {
+        ArticleListParam param = new ArticleListParam();
+        param.tid = topic.tid;
+        param.page = mCurrentPage;
+        param.topicInfo = topic.topicInfo;
+
+        mModel.loadPage(param, mHeaderMap, new OnHttpCallBack<ThreadData>() {
+            @Override
+            public void onSuccess(ThreadData data) {
+                mFailStreak = 0;
+                if (mTargetPage == 0) {
+                    int latestPage = Math.max(1,
+                            (int) Math.ceil(data.get__ROWS() / (double) ROWS_PER_PAGE));
+                    mTargetPage = mPaced
+                            ? Math.min(latestPage, mCurrentPage + MAX_PAGES_PER_TOPIC - 1)
+                            : latestPage;
+                    updateTopicInfo(topic, data);
+                    // topicInfo 在上面被刷新过，同步给本次写入
+                    param.topicInfo = topic.topicInfo;
+                }
+                mModel.cachePage(param, data.getRawData(), true);
+                onPageDone(topic);
+            }
+
+            @Override
+            public void onError(String text) {
+                NLog.e(TAG, "update tid " + topic.tid + " page " + mCurrentPage + " failed: " + text);
+                onTopicFailed(topic);
+            }
+
+            @Override
+            public void onError(String msg, Throwable t) {
+                onError(msg);
+            }
+        });
+    }
+
+    /**
+     * 刷新缓存的帖子描述文件：最新回复数、未读计数，以及排队用的两个时间戳。
+     * 时间戳必须落盘，否则重启后队列顺序就丢了。
+     */
+    private void updateTopicInfo(CachedTopic topic, ThreadData data) {
+        ThreadPageInfo pageInfo = JSON.parseObject(topic.topicInfo, ThreadPageInfo.class);
+        if (pageInfo == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        int increased = data.get__ROWS() - pageInfo.getReplies();
+        if (increased > 0) {
+            // 累加而非覆盖，用户未查看期间的多次更新要合并计数
+            pageInfo.setNewReplyCount(pageInfo.getNewReplyCount() + increased);
+            pageInfo.setLastChangeTime(now);
+            mHasUpdate = true;
+        } else if (pageInfo.getLastChangeTime() <= 0) {
+            // 首次检查且没有新回复：把观测起点定在现在，
+            // 否则 0 会一直被当作「未观测」，老帖永远降不了频
+            pageInfo.setLastChangeTime(now);
+        }
+        pageInfo.setReplies(data.get__ROWS());
+        if (data.getThreadInfo() != null) {
+            pageInfo.setLastPoster(data.getThreadInfo().getLastPoster());
+        }
+        pageInfo.setLastCheckTime(now);
+        topic.lastCheckTime = now;
+        topic.lastChangeTime = pageInfo.getLastChangeTime();
+        topic.topicInfo = JSON.toJSONString(pageInfo);
+    }
+
+    private void onPageDone(CachedTopic topic) {
+        mCurrentPage++;
+        if (mCurrentPage <= mTargetPage) {
+            if (mPaced) {
+                scheduleTick(TICK_INTERVAL);
+            } else {
+                loadPage(topic);
+            }
+            return;
+        }
+        topic.cachedPage = Math.max(topic.cachedPage, mTargetPage);
+        mCurrent = null;
+        if (mPaced) {
+            scheduleTick(TICK_INTERVAL);
+        } else {
+            mTopicIndex++;
+            nextTopic();
+        }
+    }
+
+    private void onTopicFailed(CachedTopic topic) {
+        mFailStreak++;
+        // 失败也要刷新检查时间，否则失败的帖子会一直卡在队首反复重试，
+        // 把整个队列的配额吃光
+        markChecked(topic);
+        mCurrent = null;
+        if (!mPaced) {
+            mTopicIndex++;
+            nextTopic();
+            return;
+        }
+        if (mFailStreak >= MAX_FAIL_STREAK) {
+            NLog.d(TAG, "too many failures, pause until next foreground");
+            pause();
+            return;
+        }
+        scheduleTick(TICK_INTERVAL);
+    }
+
+    /** 请求失败时只把「已检查」时间落盘，不动其他字段 */
+    private void markChecked(CachedTopic topic) {
+        long now = System.currentTimeMillis();
+        topic.lastCheckTime = now;
+        ThreadUtils.postOnSubThread(() -> {
+            try {
+                File infoFile = new File(getCacheDir(String.valueOf(topic.tid)), topic.tid + ".json");
+                if (!infoFile.exists()) {
+                    return;
+                }
+                ThreadPageInfo pageInfo = JSON.parseObject(
+                        FileUtils.readFileToString(infoFile), ThreadPageInfo.class);
+                if (pageInfo == null) {
+                    return;
+                }
+                pageInfo.setLastCheckTime(now);
+                FileUtils.write(infoFile, JSON.toJSONString(pageInfo));
+            } catch (Exception e) {
+                NLog.e(TAG, "mark checked failed: " + e);
+            }
+        });
+    }
+
     private static File getCacheDir(String tid) {
         return new File(ContextUtils.getContext().getFilesDir().getAbsolutePath() + "/cache/" + tid);
     }
 
     /**
-     * 扫描缓存目录，收集每个帖子已缓存到第几页
+     * 扫描缓存目录，收集每个帖子已缓存到第几页以及排队用的时间戳
      */
     private List<CachedTopic> scanCachedTopics() {
         List<CachedTopic> topics = new ArrayList<>();
@@ -162,6 +456,8 @@ public class TopicCacheUpdateTask {
                 topic.tid = Integer.parseInt(tidStr);
                 topic.topicInfo = topicInfo;
                 topic.cachedPage = findMaxCachedPage(dir, tidStr);
+                topic.lastCheckTime = pageInfo.getLastCheckTime();
+                topic.lastChangeTime = pageInfo.getLastChangeTime();
                 if (topic.cachedPage > 0) {
                     topics.add(topic);
                 }
@@ -194,88 +490,4 @@ public class TopicCacheUpdateTask {
         }
         return maxPage;
     }
-
-    private void nextTopic() {
-        if (mTopics == null || mTopicIndex >= mTopics.size()) {
-            PreferenceUtils.putData(KEY_LAST_UPDATE_TIME, System.currentTimeMillis());
-            sRunning = false;
-            if (mListener != null) {
-                mListener.onUpdateFinished(mHasUpdate);
-            }
-            return;
-        }
-        CachedTopic topic = mTopics.get(mTopicIndex);
-        // 从已缓存的最后一页开始重下，那一页通常未满，可能有新回复
-        mCurrentPage = topic.cachedPage;
-        mTargetPage = 0;
-        loadPage(topic);
-    }
-
-    private void loadPage(CachedTopic topic) {
-        ArticleListParam param = new ArticleListParam();
-        param.tid = topic.tid;
-        param.page = mCurrentPage;
-        param.topicInfo = topic.topicInfo;
-
-        mModel.loadPage(param, mHeaderMap, new OnHttpCallBack<ThreadData>() {
-            @Override
-            public void onSuccess(ThreadData data) {
-                if (mTargetPage == 0) {
-                    mTargetPage = Math.max(1, (int) Math.ceil(data.get__ROWS() / (double) ROWS_PER_PAGE));
-                    // 帖子信息里的回复数也要刷新，缓存列表才会显示最新数字
-                    updateTopicInfo(topic, data);
-                    // topicInfo 在上面被刷新过，同步给本次写入
-                    param.topicInfo = topic.topicInfo;
-                }
-                mModel.cachePage(param, data.getRawData(), true);
-                onPageDone(topic);
-            }
-
-            @Override
-            public void onError(String text) {
-                NLog.e(TAG, "update tid " + topic.tid + " page " + mCurrentPage + " failed: " + text);
-                // 单个帖子失败不影响其他帖子，直接跳到下一个
-                nextTopicIndex();
-            }
-
-            @Override
-            public void onError(String msg, Throwable t) {
-                onError(msg);
-            }
-        });
-    }
-
-    /**
-     * 用最新回复数覆盖缓存的帖子描述文件，并累计未读的新回复数
-     */
-    private void updateTopicInfo(CachedTopic topic, ThreadData data) {
-        ThreadPageInfo pageInfo = JSON.parseObject(topic.topicInfo, ThreadPageInfo.class);
-        if (pageInfo == null || data.getThreadInfo() == null) {
-            return;
-        }
-        int increased = data.get__ROWS() - pageInfo.getReplies();
-        if (increased > 0) {
-            // 累加而非覆盖，用户未查看期间的多次更新要合并计数
-            pageInfo.setNewReplyCount(pageInfo.getNewReplyCount() + increased);
-            mHasUpdate = true;
-        }
-        pageInfo.setReplies(data.get__ROWS());
-        pageInfo.setLastPoster(data.getThreadInfo().getLastPoster());
-        topic.topicInfo = JSON.toJSONString(pageInfo);
-    }
-
-    private void onPageDone(CachedTopic topic) {
-        mCurrentPage++;
-        if (mCurrentPage <= mTargetPage) {
-            loadPage(topic);
-        } else {
-            nextTopicIndex();
-        }
-    }
-
-    private void nextTopicIndex() {
-        mTopicIndex++;
-        nextTopic();
-    }
-
 }

@@ -50,12 +50,42 @@ public class ThreadPageInfo implements JavaBean {
      */
     private int mNewReplyCount;
 
+    /**
+     * 上次轮询该帖的时间。缓存更新队列按它升序排，最久没查的优先，
+     * 检查完刷成当前时间就自动排到队尾，保证每个帖子都轮得到。
+     * 0 表示从未查过，排最前面。
+     */
+    private long mLastCheckTime;
+
+    /**
+     * 上次发现回复数增加的时间，用来区分活跃帖和老帖。
+     * 不能拿文件修改时间代替——那个每次检查都会被刷新。
+     * 0 表示尚未观测过，一律按活跃帖处理，免得新缓存被误判成老帖。
+     */
+    private long mLastChangeTime;
+
     public int getNewReplyCount() {
         return mNewReplyCount;
     }
 
     public void setNewReplyCount(int newReplyCount) {
         mNewReplyCount = newReplyCount;
+    }
+
+    public long getLastCheckTime() {
+        return mLastCheckTime;
+    }
+
+    public void setLastCheckTime(long lastCheckTime) {
+        mLastCheckTime = lastCheckTime;
+    }
+
+    public long getLastChangeTime() {
+        return mLastChangeTime;
+    }
+
+    public void setLastChangeTime(long lastChangeTime) {
+        mLastChangeTime = lastChangeTime;
     }
 
     public boolean isMirrorBoard() {

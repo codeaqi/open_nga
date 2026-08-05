@@ -492,6 +492,8 @@ public class ArticleListAdapter extends RecyclerView.Adapter<ArticleListAdapter.
                 holder.contentContainer.addView(holder.contentTV);
             }
             holder.contentTV.getWebViewClientEx().setImgUrls(row.getImageUrls());
+            // baseURL 必须传 null（页面源为 about:blank）。换成 http 的 base 会让页面变成
+            // http 源，而 http 源不允许加载 file:// 子资源，表情和无图占位符会全部失效。
             holder.contentTV.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
         } else {
             holder.contentTextView.setText(row.getContent());

@@ -39,11 +39,12 @@ import gov.anzong.androidnga.core.board.data.BoardEntity
 
 /**
  * 首页底部导航的三个 Tab。
- * [title] 为 null 表示标题取自板块数据（网事杂谈的名字随 board_list.json 变化）。
+ * [label] 是底部导航栏上的文字，[title] 是顶部标题栏的文字，两者可以不同。
+ * [title] 为 null 表示标题取自板块数据（随 board_list.json 变化）；给了值就固定显示该值。
  */
 enum class MainTab(val label: String, val icon: ImageVector, val title: String?) {
-    BOOKMARK("我的收藏", Icons.Default.Star, "我的收藏"),
-    FORUM("网事杂谈", Icons.Default.Home, null),
+    FORUM("万象庭", Icons.Default.Home, "知行合一"),
+    BOOKMARK("我的收藏", Icons.Default.Star, "知行合一"),
     MINE("我的", Icons.Default.Person, "我的"),
 }
 

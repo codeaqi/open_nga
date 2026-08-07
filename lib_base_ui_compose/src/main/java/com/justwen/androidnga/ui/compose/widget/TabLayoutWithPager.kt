@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -66,6 +67,16 @@ private fun TabRowItems(
                     pagerState.animateScrollToPage(index)
                 }
             },
-            text = { Text(title) })
+            text = {
+                // 固定宽度的 TabRow 把每个 Tab 挤成等分的窄条，Tab 自身还有左右 16dp
+                // 内边距，「IT软硬件」这类稍长的标题默认会折成两行。
+                // maxLines=1 + softWrap=false 保证不换行，字号收一档避免被截断。
+                Text(
+                    text = title,
+                    maxLines = 1,
+                    softWrap = false,
+                    fontSize = 13.sp
+                )
+            })
     }
 }

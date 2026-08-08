@@ -21,16 +21,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
+import java.util.concurrent.ConcurrentHashMap
 import com.justwent.androidnga.bu.UserManager
 import gov.anzong.androidnga.R
 import gov.anzong.androidnga.base.util.ContextUtils
@@ -55,22 +58,30 @@ fun ForumBoardGroupView(board: BoardEntity, context: Context = ContextUtils.getC
     }
 }
 
+private val ItemPadding = 4.dp
+
+private val IconSize = 48.dp
+
+/**
+ * 版面九宫格里的一格。
+ *
+ * [textColor] 由调用方传入而不是在这里查资源：一屏有十几格，每格每次重组都查一次
+ * 颜色资源是白花的钱，调用方查一次传下来即可。
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ForumBoardGridItemView(
     child: BoardEntity,
     forumBoardViewModel: ForumBoardViewModel,
-    context: Context = ContextUtils.getContext(),
+    textColor: Color,
     onLongClick: (() -> Unit)? = null,
     selected: Boolean = false
 ) {
-    val paddingValue = 4.dp
-    val imageSize = 48.dp
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
-            .padding(paddingValue)
+            .padding(ItemPadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(
@@ -81,20 +92,28 @@ internal fun ForumBoardGridItemView(
                 onLongClick = { onLongClick?.invoke() }
             )
     ) {
-        Spacer(modifier = Modifier.height(paddingValue))
-        val resId = getResId(child)
+        Spacer(modifier = Modifier.height(ItemPadding))
+        val resId = remember(child.id) { getResId(child) }
         if (resId > 0) {
             Image(
-                modifier = Modifier.size(imageSize),
+                modifier = Modifier.size(IconSize),
                 painter = painterResource(id = resId),
                 contentDescription = ""
             )
         } else {
-            val url = getResUrl(child)
+            // 网络图标按显示尺寸解码，否则每个格子都拿原图大小的 Bitmap 占内存缓存
+            val iconPx = with(LocalDensity.current) { IconSize.roundToPx() }
+            val appContext = LocalContext.current.applicationContext
+            val request = remember(child.id, iconPx) {
+                ImageRequest.Builder(appContext)
+                    .data(getResUrl(child))
+                    .size(iconPx, iconPx)
+                    .build()
+            }
             Image(
-                modifier = Modifier.size(imageSize),
+                modifier = Modifier.size(IconSize),
                 painter = rememberAsyncImagePainter(
-                    model = url,
+                    model = request,
                     placeholder = painterResource(id = R.drawable.default_board_icon),
                     error = painterResource(id = R.drawable.default_board_icon)
                 ),
@@ -103,11 +122,11 @@ internal fun ForumBoardGridItemView(
         }
         Text(
             modifier = Modifier
-                .padding(top = paddingValue, bottom = paddingValue),
-            color = Color(context.resources.getColor(R.color.text_color, null)),
+                .padding(top = ItemPadding, bottom = ItemPadding),
+            color = textColor,
             text = child.name
         )
-        Spacer(modifier = Modifier.height(paddingValue))
+        Spacer(modifier = Modifier.height(ItemPadding))
     }
 }
 
@@ -124,16 +143,26 @@ private fun getResUrl(board: BoardEntity): String {
 }
 
 
+/**
+ * fid → 内置图标资源 id 的缓存。
+ *
+ * getIdentifier 是拿字符串去资源表里找，命中慢、找不到更慢，而当前 board_list 里
+ * 大部分版面根本没有内置图标，走的全是「找不到」这条路。查询结果在运行期不会变，
+ * 缓存住，一个 fid 只查一次。
+ */
+private val boardIconResIds = ConcurrentHashMap<Int, Int>()
+
 private fun getResId(board: BoardEntity): Int {
-    val fid = if (board.iconFid != 0) board.iconFid else board.fid
     // 合集本身没有内置图标，除非借用了别的版面
     if (board.iconFid == 0 && board.stid != 0) {
         return 0
     }
-
-    val resName = if (fid > 0) "p$fid" else "p_" + abs(fid)
-    return ContextUtils.getResources()
-        .getIdentifier(resName, "drawable", ContextUtils.getContext().packageName)
+    val fid = if (board.iconFid != 0) board.iconFid else board.fid
+    return boardIconResIds.getOrPut(fid) {
+        val resName = if (fid > 0) "p$fid" else "p_" + abs(fid)
+        ContextUtils.getResources()
+            .getIdentifier(resName, "drawable", ContextUtils.getContext().packageName)
+    }
 }
 
 @Composable

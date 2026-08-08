@@ -533,9 +533,9 @@ private fun StockItem(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 8.dp)
             ) {
-                TargetTag(StockTarget.Level.BUILD, target.buildPrice, reached)
-                TargetTag(StockTarget.Level.ADD, target.addPrice, reached)
-                TargetTag(StockTarget.Level.FULL, target.fullPrice, reached)
+                TargetTag(StockTarget.Level.BUILD, target.buildPrice, reached, dividend)
+                TargetTag(StockTarget.Level.ADD, target.addPrice, reached, dividend)
+                TargetTag(StockTarget.Level.FULL, target.fullPrice, reached, dividend)
             }
         }
 
@@ -554,18 +554,29 @@ private fun StockItem(
 
 /**
  * 目标价标签。已触及的档位用醒目底色标出，未设置的档位留空占位保持对齐。
+ *
+ * 标签前缀是「跌到这个价时的股息率」而不是仓位百分比：仓位那三个数（20/30/50）
+ * 是写死的，看一眼就知道，占着位置不提供信息；股息率才是决定要不要在这个价位
+ * 下手的依据。没有分红数据的股票退回显示仓位百分比。
  */
 @Composable
 private fun RowScope.TargetTag(
     level: StockTarget.Level,
     price: Float,
-    reached: StockTarget.Level?
+    reached: StockTarget.Level?,
+    dividend: DividendInfo?
 ) {
     if (price <= 0f) {
         Box(modifier = Modifier.weight(1f))
         return
     }
     val isReached = reached == level
+    val yieldAt = dividend?.yieldOf(price) ?: 0f
+    val prefix = if (yieldAt > 0f) {
+        String.format("%.2f%%", yieldAt)
+    } else {
+        "${level.percent}%"
+    }
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -582,7 +593,7 @@ private fun RowScope.TargetTag(
             .padding(horizontal = 6.dp, vertical = 5.dp)
     ) {
         Text(
-            text = "${level.percent}%${level.label} ${String.format("%.2f", price)}",
+            text = "$prefix${level.label} ${String.format("%.2f", price)}",
             fontSize = 9.sp,
             // 小字号下行高默认会偏大，压紧一点让文字在边框里居中
             lineHeight = 11.sp,

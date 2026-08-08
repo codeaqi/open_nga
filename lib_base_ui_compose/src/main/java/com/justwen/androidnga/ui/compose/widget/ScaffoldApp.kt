@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -160,8 +161,12 @@ fun ScaffoldApp(
     showTopBar: Boolean = true,
     appContent: @Composable (() -> Unit)? = null,
 ) {
-    rememberSystemUiController().run {
-        setStatusBarColor(MaterialTheme.colors.primary, false)
+    // 改状态栏是副作用，不能裸写在组合里——那样每重组一次就会去动一次窗口属性。
+    // 放进 SideEffect，只在组合成功提交后跑。
+    val systemUiController = rememberSystemUiController()
+    val statusBarColor = MaterialTheme.colors.primary
+    SideEffect {
+        systemUiController.setStatusBarColor(statusBarColor, false)
     }
     Scaffold(
         topBar = {

@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -131,29 +132,35 @@ fun ForumTabContent(forumBoardViewModel: ForumBoardViewModel) {
         return
     }
 
-    val groups = forumBoard.children.orEmpty()
-        .filter { it.type == BoardEntity.BoardType.GROUP }
+    val groups = remember(forumBoard) {
+        forumBoard.children.orEmpty().filter { it.type == BoardEntity.BoardType.GROUP }
+    }
     if (groups.isEmpty()) {
         ForumBoardGridContent(forumBoard, forumBoardViewModel)
         return
     }
 
-    // 自定义内容源入口：非 NGA 板块，点进去打开对应页面。以后要加内容源就扩充这个列表。
-    val customSources = listOf(
-        CustomSource("知乎热搜", ARouterConstants.ACTIVITY_ZHIHU_HOT, R.drawable.ic_zhihu),
-        CustomSource("论文阅读", ARouterConstants.ACTIVITY_PAPER_LIST, R.drawable.ic_paper)
-    )
-    val customTabName = "网事闲聊"
+    // Tab 标题在版面数据不变时是恒定的，记住它，免得每次重组都新建一份列表
+    // 让整个 TabRow + Pager 子树跟着重组
+    val tabTitles = remember(groups) { groups.map { it.name } + CUSTOM_TAB_NAME }
 
     TabLayoutWithPager(
-        tabs = groups.map { it.name } + customTabName,
+        tabs = tabTitles,
         initialPage = 0,
         fixed = true
     ) { index ->
         if (index == groups.size) {
-            CustomSourceGridView(customSources)
+            CustomSourceGridView(CUSTOM_SOURCES)
         } else {
             ForumBoardGridContent(groups[index], forumBoardViewModel)
         }
     }
 }
+
+private const val CUSTOM_TAB_NAME = "网事闲聊"
+
+/** 自定义内容源入口：非 NGA 板块，点进去打开对应页面。以后要加内容源就扩充这个列表。 */
+private val CUSTOM_SOURCES = listOf(
+    CustomSource("知乎热搜", ARouterConstants.ACTIVITY_ZHIHU_HOT, R.drawable.ic_zhihu),
+    CustomSource("论文阅读", ARouterConstants.ACTIVITY_PAPER_LIST, R.drawable.ic_paper)
+)

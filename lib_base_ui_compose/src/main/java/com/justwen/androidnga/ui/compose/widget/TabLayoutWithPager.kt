@@ -48,7 +48,13 @@ fun TabLayoutWithPager(
                 TabRowItems(tabs, pagerState, coroutineScope)
             }
         }
-        HorizontalPager(state = pagerState) { pageIndex -> content?.invoke(pageIndex) }
+        // 相邻页提前组合好。默认值 0 意味着手指按下、页面开始跟手的那一刻才去组合下一页
+        // ——整页的组合和测量全落在滑动的头几帧里，屏幕是 120Hz 的话一帧只有 8.3ms，
+        // 必然掉帧，手感就是「一滑就顿一下」。提前一页换来的是滑动全程只做位移。
+        HorizontalPager(
+            state = pagerState,
+            beyondViewportPageCount = 1
+        ) { pageIndex -> content?.invoke(pageIndex) }
     }
 
 }

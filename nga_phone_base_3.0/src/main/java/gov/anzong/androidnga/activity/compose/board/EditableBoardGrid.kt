@@ -27,9 +27,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import gov.anzong.androidnga.R
 import gov.anzong.androidnga.core.board.data.BoardEntity
 
 private const val MAX_COLUMN = 3
@@ -96,24 +98,34 @@ fun EditableBoardGrid(
             )
         }
 
+        // 这两个每格都要用，在格子外面取一次传下去，别让十几个格子各查一遍资源
+        val textColor = colorResource(id = R.color.text_color)
+        val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
         LazyVerticalGrid(
             columns = GridCells.Fixed(MAX_COLUMN),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = 8.dp, end = 8.dp)
         ) {
-            items(boards.size) { index ->
+            // 给 key 和 contentType，左右翻页时 LazyGrid 才能认出这是同一批格子并复用，
+            // 否则每次都当成全新内容整批重建
+            items(
+                count = boards.size,
+                key = { boards[it].id },
+                contentType = { "board" }
+            ) { index ->
                 val board = boards[index]
                 ForumBoardGridItemView(
                     child = board,
                     forumBoardViewModel = forumBoardViewModel,
+                    textColor = textColor,
                     onLongClick = { editingId = board.id },
                     selected = board.id == editingId
                 )
             }
-            item(span = { GridItemSpan(MAX_COLUMN) }) {
-                val paddingValues = WindowInsets.navigationBars.asPaddingValues()
-                Spacer(modifier = Modifier.height(paddingValues.calculateBottomPadding()))
+            item(span = { GridItemSpan(MAX_COLUMN) }, key = "bottom_inset", contentType = "inset") {
+                Spacer(modifier = Modifier.height(bottomInset))
             }
         }
     }

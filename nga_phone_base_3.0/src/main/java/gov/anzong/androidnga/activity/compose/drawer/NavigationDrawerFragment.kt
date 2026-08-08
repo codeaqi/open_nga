@@ -118,13 +118,13 @@ class NavigationDrawerFragment : BaseComposeFragment() {
     /** 左上角用当前账号头像替代返回箭头，点击行为不变（打开抽屉） */
     @Composable
     fun TopBarAvatar() {
-        val userList = UserManager.getUserListLiveData().observeAsState(emptyList())
-        var activeIndex by remember { mutableIntStateOf(UserManager.getActiveIndex()) }
-        UserManager.getActiveIndexLiveData().observe(requireActivity()) {
-            activeIndex = it
-        }
-        val userCount = userList.value.size
-        val user = if (userCount > 0) userList.value[activeIndex % userCount] else null
+        // 必须用 observeAsState 而不是 LiveData.observe()：后者写在组合里的话，每重组
+        // 一次就多挂一个绑在 Activity 生命周期上的观察者，永远不摘，越用越慢
+        val userList by UserManager.getUserListLiveData().observeAsState(emptyList())
+        val activeIndex by UserManager.getActiveIndexLiveData()
+            .observeAsState(UserManager.getActiveIndex())
+        val userCount = userList.size
+        val user = if (userCount > 0) userList[activeIndex % userCount] else null
 
         if (user?.avatarUrl?.isNotEmpty() == true) {
             Image(
@@ -223,12 +223,10 @@ class NavigationDrawerFragment : BaseComposeFragment() {
 
     @Composable
     fun UserHeaderView() {
-        var activeIndex by remember { mutableIntStateOf(0) }
-        UserManager.getActiveIndexLiveData().observe(requireActivity()) {
-            activeIndex = it
-        }
-        val userList = UserManager.getUserListLiveData().observeAsState(emptyList())
-        val userCount = userList.value.size
+        // 同 TopBarAvatar：走 observeAsState，避免每次重组都往 Activity 上挂一个新观察者
+        val activeIndex by UserManager.getActiveIndexLiveData().observeAsState(0)
+        val userList by UserManager.getUserListLiveData().observeAsState(emptyList())
+        val userCount = userList.size
 
         Box(
             modifier = Modifier
@@ -245,7 +243,7 @@ class NavigationDrawerFragment : BaseComposeFragment() {
                 Box(modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp)) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (userCount > 0) {
-                            val user = userList.value[index % userCount]
+                            val user = userList[index % userCount]
                             UserAvatarView(user, userCount)
                         } else {
                             UserAvatarView()
@@ -260,7 +258,9 @@ class NavigationDrawerFragment : BaseComposeFragment() {
                         modifier = Modifier
                             .padding(end = 16.dp),
                         onClick = {
-                            activeIndex = UserManager.toggleUser(true)
+                            // toggleUser 会写回 activeIndexLiveData，界面由上面的
+                            // observeAsState 自动跟着变，这里不用再手动赋值
+                            UserManager.toggleUser(true)
                         }) {
                         Icon(
                             painter = painterResource(R.drawable.ic_action_next_item),

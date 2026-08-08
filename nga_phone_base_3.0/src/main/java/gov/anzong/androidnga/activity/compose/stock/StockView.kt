@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import gov.anzong.androidnga.activity.compose.stock.data.DividendInfo
 import gov.anzong.androidnga.activity.compose.stock.data.StockInfo
 import gov.anzong.androidnga.activity.compose.stock.data.StockTarget
+import gov.anzong.androidnga.activity.compose.stock.data.gapTo
 
 /** A 股习惯：涨红跌绿 */
 private val ColorUp = Color(0xFFE53935)
@@ -244,18 +245,21 @@ private fun TargetPriceDialog(
     } else {
         null
     }
+    // 弹窗里当前生效的三档价：开了自动计算就用算出来的，否则用输入框里手填的。
+    // 保存和「还需跌多少」都读它，改一个数字两边一起变。
+    val targetPrices = Triple(
+        calculated?.first ?: build.toFloatOrNull() ?: 0f,
+        calculated?.second ?: add.toFloatOrNull() ?: 0f,
+        calculated?.third ?: full.toFloatOrNull() ?: 0f
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("${stock.name} 建仓价") },
+        // 标题直接带上现价：下面每一行都是拿它作参照，摆在最显眼处比另起一行说明有用
+        title = { Text("${stock.name} 当前价 ${String.format("%.2f", stock.price)}") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(
-                    text = "当前价 ${String.format("%.2f", stock.price)}，股价跌到目标价时会高亮提示",
-                    fontSize = 12.sp,
-                    color = ColorFlat,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                GapSection(currentPrice = stock.price, prices = targetPrices)
 
                 AutoCalcSection(
                     hasDividend = hasDividend,
@@ -299,9 +303,9 @@ private fun TargetPriceDialog(
                 // 自动计算时存算出来的价格，这样列表和提醒逻辑不用关心是手填还是算的
                 onConfirm(
                     StockTarget(
-                        buildPrice = calculated?.first ?: build.toFloatOrNull() ?: 0f,
-                        addPrice = calculated?.second ?: add.toFloatOrNull() ?: 0f,
-                        fullPrice = calculated?.third ?: full.toFloatOrNull() ?: 0f,
+                        buildPrice = targetPrices.first,
+                        addPrice = targetPrices.second,
+                        fullPrice = targetPrices.third,
                         note = note.trim(),
                         showNote = showNote,
                         autoCalc = autoCalc,
@@ -315,6 +319,85 @@ private fun TargetPriceDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
+}
+
+/**
+ * 现价距三档目标价还得跌多少，跌幅和差价各给一列。
+ *
+ * 价格取弹窗里当前生效的三档（手填的或自动算的），所以调股息率、改输入框时数字
+ * 立刻跟着变。没设价的档不占行，三档都没设或者拉不到现价时整块不出现。
+ */
+@Composable
+private fun GapSection(currentPrice: Float, prices: Triple<Float, Float, Float>) {
+    if (currentPrice <= 0f) {
+        return
+    }
+    val rows = listOf(
+        StockTarget.Level.BUILD to prices.first,
+        StockTarget.Level.ADD to prices.second,
+        StockTarget.Level.FULL to prices.third
+    ).filter { it.second > 0f }
+    if (rows.isEmpty()) {
+        return
+    }
+    Text(text = "距目标还需下跌", fontSize = 12.sp, color = ColorFlat)
+    Column(modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)) {
+        rows.forEach { (level, price) ->
+            GapRow(level = level, targetPrice = price, currentPrice = currentPrice)
+        }
+    }
+}
+
+/** 一档的距离。已经跌到位的档不显示 0，直接说「已到达」 */
+@Composable
+private fun GapRow(level: StockTarget.Level, targetPrice: Float, currentPrice: Float) {
+    val gap = gapTo(currentPrice, targetPrice)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp)
+    ) {
+        Text(
+            text = level.label,
+            fontSize = 13.sp,
+            color = ColorFlat,
+            modifier = Modifier.weight(0.8f)
+        )
+        Text(
+            text = String.format("%.2f", targetPrice),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colors.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+        if (gap == null) {
+            Text(
+                text = "已到达",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = ColorReachedFg,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(2f)
+            )
+        } else {
+            // 跌幅一位小数够看趋势，差价保留两位对得上报价
+            Text(
+                text = String.format("%.1f%%", gap.percent),
+                fontSize = 13.sp,
+                color = ColorDown,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = String.format("%.2f", gap.diff),
+                fontSize = 13.sp,
+                color = ColorDown,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 }
 
 /**

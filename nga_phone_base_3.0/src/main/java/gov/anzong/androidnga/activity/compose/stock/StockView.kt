@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -69,6 +70,12 @@ private val ColorReachedBg = Color(0xFFFCE4E6)
 
 /** 已触及档位的边框与文字，用深红保证在淡底上看得清 */
 private val ColorReachedFg = Color(0xFFC62828)
+
+/** 档位标签的正常字号 */
+private val TagFontSize = 9.sp
+
+/** 档位标签自动缩字号的下限，再小就看不清了，宁可让尾部裁掉 */
+private val TagFontSizeMin = 6.sp
 
 private fun colorOf(changePercent: Float): Color = when {
     changePercent > 0 -> ColorUp
@@ -577,6 +584,13 @@ private fun RowScope.TargetTag(
     } else {
         "${level.percent}%"
     }
+    val text = "$prefix${level.label} ${String.format("%.2f", price)}"
+    // 整串放不下时按实测结果逐级缩字号。默认的换行行为在 maxLines=1 下会把价格断
+    // 到第二行再整行裁掉，标签只剩「4.50%建仓」——价格无声消失。系统字体放大到
+    // 1.4 倍以上、或价格是三位数时就会踩到，宁可字小一点也要把价格显示全。
+    var fontSize by remember(text) { mutableStateOf(TagFontSize) }
+    // 缩到合适字号前先别画，否则会看到一帧大字
+    var measured by remember(text) { mutableStateOf(false) }
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -593,14 +607,28 @@ private fun RowScope.TargetTag(
             .padding(horizontal = 6.dp, vertical = 5.dp)
     ) {
         Text(
-            text = "$prefix${level.label} ${String.format("%.2f", price)}",
-            fontSize = 9.sp,
+            text = text,
+            fontSize = fontSize,
             // 小字号下行高默认会偏大，压紧一点让文字在边框里居中
-            lineHeight = 11.sp,
+            lineHeight = fontSize * 1.22f,
             maxLines = 1,
+            // 不许换行：宽度不够时要么缩字号，要么裁尾，绝不把价格甩到看不见的第二行
+            softWrap = false,
             fontWeight = if (isReached) FontWeight.Bold else FontWeight.Normal,
             // 底色变淡后文字不能再用白色，改深红
-            color = if (isReached) ColorReachedFg else ColorFlat
+            color = if (isReached) ColorReachedFg else ColorFlat,
+            onTextLayout = { result ->
+                if (result.hasVisualOverflow && fontSize > TagFontSizeMin) {
+                    fontSize *= 0.92f
+                } else {
+                    measured = true
+                }
+            },
+            modifier = Modifier.drawWithContent {
+                if (measured) {
+                    drawContent()
+                }
+            }
         )
     }
 }

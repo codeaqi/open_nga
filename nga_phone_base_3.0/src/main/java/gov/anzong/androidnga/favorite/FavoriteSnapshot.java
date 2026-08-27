@@ -61,4 +61,48 @@ public class FavoriteSnapshot {
         FavoriteItem item = items.get(String.valueOf(tid));
         return item == null ? "" : item.folder;
     }
+
+    /** 新建文件夹。空名、纯空格、重名一律拒绝并返回 false，由调用方提示用户 */
+    public boolean createFolder(String name) {
+        String trimmed = name == null ? "" : name.trim();
+        if (trimmed.isEmpty() || folders.contains(trimmed)) {
+            return false;
+        }
+        folders.add(trimmed);
+        return true;
+    }
+
+    /**
+     * 重命名文件夹，并把夹内所有条目的 folder 一并改掉——
+     * 漏了这一步就会留下一批指向旧名、哪个夹都进不去的孤儿条目。
+     */
+    public boolean renameFolder(String oldName, String newName) {
+        String trimmed = newName == null ? "" : newName.trim();
+        int index = folders.indexOf(oldName);
+        if (index < 0 || trimmed.isEmpty() || folders.contains(trimmed)) {
+            return false;
+        }
+        folders.set(index, trimmed);
+        for (FavoriteItem item : items.values()) {
+            if (oldName.equals(item.folder)) {
+                item.folder = trimmed;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 删除文件夹。**帖子不删**，只是退回未分类——删夹是整理动作，
+     * 用户不会期望连带丢掉收藏。
+     */
+    public void deleteFolder(String name) {
+        if (!folders.remove(name)) {
+            return;
+        }
+        for (FavoriteItem item : items.values()) {
+            if (name.equals(item.folder)) {
+                item.folder = "";
+            }
+        }
+    }
 }

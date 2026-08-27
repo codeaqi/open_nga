@@ -3,7 +3,9 @@ package gov.anzong.androidnga.favorite;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 本地收藏快照的内存模型与全部业务逻辑。
@@ -104,5 +106,54 @@ public class FavoriteSnapshot {
                 item.folder = "";
             }
         }
+    }
+
+    /**
+     * 取某个文件夹里的条目，传空串取未分类。
+     * 返回顺序沿用 items 的插入顺序（LinkedHashMap），也就是服务端列表的先后。
+     */
+    public List<FavoriteItem> itemsIn(String folder) {
+        String target = folder == null ? "" : folder;
+        List<FavoriteItem> result = new ArrayList<>();
+        for (FavoriteItem item : items.values()) {
+            if (target.equals(item.folder)) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 按标题或作者搜索，**不分文件夹**——搜的时候通常不记得当初把帖子放哪了。
+     * 关键词为空返回空列表，由调用方据此退回普通视图。
+     */
+    public List<FavoriteItem> search(String keyword) {
+        List<FavoriteItem> result = new ArrayList<>();
+        String key = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+        if (key.isEmpty()) {
+            return result;
+        }
+        for (FavoriteItem item : items.values()) {
+            String subject = item.subject == null ? "" : item.subject.toLowerCase(Locale.ROOT);
+            String author = item.author == null ? "" : item.author.toLowerCase(Locale.ROOT);
+            if (subject.contains(key) || author.contains(key)) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 按服务端返回的收藏全集清理本地孤儿条目（在网页端取消收藏的那些）。
+     *
+     * **只能在「同步全部收藏」完整成功后调用。**中途失败时调用会把没拉到的
+     * 收藏当成已取消一并删掉。全集为空时直接跳过，那多半是拉取异常而不是
+     * 真的一条收藏都没有。
+     */
+    public void pruneTo(Set<Integer> serverTids) {
+        if (serverTids == null || serverTids.isEmpty()) {
+            return;
+        }
+        items.keySet().removeIf(key -> !serverTids.contains(Integer.valueOf(key)));
     }
 }

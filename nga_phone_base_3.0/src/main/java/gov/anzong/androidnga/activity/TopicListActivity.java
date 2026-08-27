@@ -104,6 +104,17 @@ public class TopicListActivity extends BaseActivity {
         }
     }
 
+    @Override
+    public void onBackPressed() {
+        androidx.fragment.app.Fragment fragment =
+                getSupportFragmentManager().findFragmentById(android.R.id.content);
+        if (fragment instanceof TopicFavoriteFragment
+                && ((TopicFavoriteFragment) fragment).onBackPressedHandled()) {
+            return;
+        }
+        super.onBackPressed();
+    }
+
     private boolean isBoardTopicList() {
         return mRequestParam.recommend == 0
                 && mRequestParam.twentyfour == 0

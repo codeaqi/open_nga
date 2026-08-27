@@ -36,6 +36,7 @@ import sp.phone.rxjava.RxLifecycleProvider;
  *    按 15 秒一个的话几十个帖子要等十几分钟，没法用。
  *
  * 两种模式互斥：手动跑的时候调度器让路，避免同时写同一个 json。
+ * 帖子下载（{@link TopicCacheAllTask}）跑的时候两者都让路，见 {@link #setDownloadRunning}。
  */
 public class TopicCacheUpdateTask {
 
@@ -93,10 +94,30 @@ public class TopicCacheUpdateTask {
     /** 手动全量占用中，调度器让路 */
     private static boolean sManualRunning;
 
+    /**
+     * 帖子下载（{@link TopicCacheAllTask}）占用中，限速更新同样让路。
+     *
+     * 下载已经在按约 1 页/秒发请求，限速更新再叠一条 15 秒一次的流，等于同时有两个
+     * 来源在打同一个站点，更容易触发限流——而限流一来两边都废。
+     */
+    private static boolean sDownloadRunning;
+
+    /** 供 {@link TopicCacheAllTask} 在队列开跑/跑空时通知，跑空后自动恢复限速轮转 */
+    public static void setDownloadRunning(boolean running) {
+        sDownloadRunning = running;
+        if (running) {
+            if (sScheduler != null) {
+                sScheduler.pause();
+            }
+        } else if (sForeground) {
+            onEnterForeground();
+        }
+    }
+
     /** app 回到前台：恢复限速更新 */
     public static void onEnterForeground() {
         sForeground = true;
-        if (sManualRunning) {
+        if (sManualRunning || sDownloadRunning) {
             return;
         }
         if (sScheduler == null) {
@@ -189,7 +210,7 @@ public class TopicCacheUpdateTask {
     // ==================== 限速调度 ====================
 
     private void resume() {
-        if (!sForeground || sManualRunning) {
+        if (!sForeground || sManualRunning || sDownloadRunning) {
             return;
         }
         mFailStreak = 0;
@@ -217,7 +238,7 @@ public class TopicCacheUpdateTask {
     }
 
     private void scheduleTick(long delay) {
-        if (!sForeground || sManualRunning) {
+        if (!sForeground || sManualRunning || sDownloadRunning) {
             return;
         }
         sHandler.removeCallbacks(mTick);
@@ -225,7 +246,7 @@ public class TopicCacheUpdateTask {
     }
 
     private void tick() {
-        if (!sForeground || sManualRunning || mQueue == null) {
+        if (!sForeground || sManualRunning || sDownloadRunning || mQueue == null) {
             return;
         }
         // 还在补当前帖子的后续页，继续补——补页同样走限速通道，

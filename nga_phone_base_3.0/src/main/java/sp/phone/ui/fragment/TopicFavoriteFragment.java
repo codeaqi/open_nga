@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import gov.anzong.androidnga.R;
+import gov.anzong.androidnga.base.util.ToastUtils;
 import gov.anzong.androidnga.favorite.FavoriteStore;
 import sp.phone.mvp.model.entity.ThreadPageInfo;
 import sp.phone.mvp.model.entity.TopicListInfo;
@@ -120,20 +122,88 @@ public class TopicFavoriteFragment extends TopicSearchFragment implements View.O
         mAdapter.removeItem(pageInfo);
     }
 
+    /**
+     * 长按出菜单而不是直接弹删除确认。
+     *
+     * 归类和删除都挂在长按上，而且直接删除太容易误触——取消收藏是不可逆的。
+     */
     @Override
     public boolean onLongClick(final View view) {
-        final AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
-        builder.setMessage(this.getString(R.string.delete_favo_confirm_text))
-                .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        ThreadPageInfo info = (ThreadPageInfo) view.getTag();
-                        mPresenter.removeTopic(info, info.getPosition());
+        final ThreadPageInfo info = (ThreadPageInfo) view.getTag();
+        new AlertDialog.Builder(getContext())
+                .setTitle(info.getSubject())
+                .setItems(new CharSequence[]{"移到文件夹", "删除收藏"}, (dialog, which) -> {
+                    if (which == 0) {
+                        showMoveDialog(info);
+                    } else {
+                        confirmRemove(info);
                     }
                 })
-                .setNegativeButton(android.R.string.cancel, null)
-                .create()
                 .show();
         return true;
+    }
+
+    private void confirmRemove(final ThreadPageInfo info) {
+        new AlertDialog.Builder(getContext())
+                .setMessage(getString(R.string.delete_favo_confirm_text))
+                .setPositiveButton(android.R.string.ok,
+                        (dialog, which) -> mPresenter.removeTopic(info, info.getPosition()))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** 单选：现有文件夹 + 新建 + 移出。一个帖子只属于一个文件夹，所以是单选 */
+    private void showMoveDialog(final ThreadPageInfo info) {
+        final List<String> folders =
+                new ArrayList<>(FavoriteStore.getInstance().snapshot().folders);
+        final CharSequence[] options = new CharSequence[folders.size() + 2];
+        for (int i = 0; i < folders.size(); i++) {
+            options[i] = folders.get(i);
+        }
+        options[folders.size()] = "新建文件夹…";
+        options[folders.size() + 1] = "移出文件夹";
+
+        new AlertDialog.Builder(getContext())
+                .setTitle("移到文件夹")
+                .setItems(options, (dialog, which) -> {
+                    if (which == folders.size()) {
+                        showCreateFolderDialog(info);
+                    } else if (which == folders.size() + 1) {
+                        moveTo(info, "");
+                    } else {
+                        moveTo(info, folders.get(which));
+                    }
+                })
+                .show();
+    }
+
+    private void showCreateFolderDialog(final ThreadPageInfo info) {
+        final EditText input = new EditText(getContext());
+        input.setHint("文件夹名，如 红利");
+        new AlertDialog.Builder(getContext())
+                .setTitle("新建文件夹")
+                .setView(input)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    String name = input.getText().toString().trim();
+                    if (!FavoriteStore.getInstance().snapshot().createFolder(name)) {
+                        ToastUtils.error(name.isEmpty() ? "文件夹名不能为空" : "已存在同名文件夹");
+                        return;
+                    }
+                    moveTo(info, name);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /**
+     * 归类后立刻把该帖从当前列表移除——它已经不属于这个视图了，
+     * 留在原地会让人以为没生效。
+     */
+    private void moveTo(ThreadPageInfo info, String folder) {
+        FavoriteStore.getInstance().snapshot().setFolder(info.getTid(), folder);
+        FavoriteStore.getInstance().save();
+        renderFolderStrip();
+        mAdapter.removeItem(info);
+        ToastUtils.success(folder.isEmpty() ? "已移出文件夹" : "已移到「" + folder + "」");
     }
 }

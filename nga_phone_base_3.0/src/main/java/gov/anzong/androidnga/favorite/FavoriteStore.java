@@ -115,6 +115,10 @@ public class FavoriteStore {
                 continue;
             }
             FavoriteItem item = entry.getValue();
+            if (item == null) {
+                it.remove();
+                continue;
+            }
             if (item.folder == null || !parsed.folders.contains(item.folder)) {
                 item.folder = "";
             }

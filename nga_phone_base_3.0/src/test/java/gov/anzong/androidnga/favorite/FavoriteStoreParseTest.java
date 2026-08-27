@@ -64,4 +64,12 @@ public class FavoriteStoreParseTest {
         assertEquals(1, s.items.size());
         assertEquals("好键", s.items.get("7").subject);
     }
+
+    /** 值为 null 的条目也要丢掉：parse 的契约是任何畸形输入都降级成空库，绝不抛异常 */
+    @Test
+    public void parseDropsEntriesWithNullValue() {
+        FavoriteSnapshot s = FavoriteStore.parse("{\"items\":{\"1\":null,\"2\":{\"tid\":2,\"subject\":\"好条目\"}}}");
+        assertEquals(1, s.items.size());
+        assertEquals("好条目", s.items.get("2").subject);
+    }
 }

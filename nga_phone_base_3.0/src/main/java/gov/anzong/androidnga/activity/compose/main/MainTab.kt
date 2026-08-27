@@ -44,8 +44,8 @@ import gov.anzong.androidnga.core.board.data.BoardEntity
  * [title] 为 null 表示标题取自板块数据（随 board_list.json 变化）；给了值就固定显示该值。
  */
 enum class MainTab(val label: String, val icon: ImageVector, val title: String?) {
-    FORUM("万象庭", Icons.Default.Home, "知行合一"),
-    BOOKMARK("我的收藏", Icons.Default.Star, "知行合一"),
+    FORUM("万象庭", Icons.Default.Home, "知行合一(11:08/2:30才能买)"),
+    BOOKMARK("我的收藏", Icons.Default.Star, "知行合一(11:08/2:30才能买)"),
     MINE("我的", Icons.Default.Person, "我的"),
 }
 

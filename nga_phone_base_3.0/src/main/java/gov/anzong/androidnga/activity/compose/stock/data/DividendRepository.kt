@@ -97,16 +97,25 @@ object DividendRepository {
      *
      * 用「各期现金总额之和 / 最新总股本」而不是简单累加每股派息——有回购或增发时
      * 各期股本不同，行情软件用的是前者，这样算出来的数才和它们对得上。
+     *
+     * [now] 只为测试可注入，正常调用取当前时间。
      */
-    private fun parse(code: String, body: String): DividendInfo? {
+    internal fun parse(
+        code: String,
+        body: String,
+        now: Long = System.currentTimeMillis()
+    ): DividendInfo? {
         val root = JSON.parseObject(body) ?: return null
         // 从不分红的股票 result 直接是 null，这是正常情况，记为 0
         val result = root.getJSONObject("result")
-            ?: return DividendInfo(code, 0f, System.currentTimeMillis())
+            ?: return DividendInfo(code, 0f, now)
         val rows = result.getJSONArray("data")
-            ?: return DividendInfo(code, 0f, System.currentTimeMillis())
+            ?: return DividendInfo(code, 0f, now)
 
-        val cutoff = Calendar.getInstance().apply { add(Calendar.YEAR, -1) }.timeInMillis
+        val cutoff = Calendar.getInstance().apply {
+            timeInMillis = now
+            add(Calendar.YEAR, -1)
+        }.timeInMillis
         var totalCash = 0.0
         var latestShares = 0.0
         for (i in 0 until rows.size) {
@@ -115,7 +124,12 @@ object DividendRepository {
                 continue
             }
             val exDate = row.getString("EX_DIVIDEND_DATE") ?: continue
-            if (parseDate(exDate) < cutoff) {
+            val exTime = parseDate(exDate)
+            if (exTime < cutoff) {
+                continue
+            }
+            // 已公告但除权日还没到的那期不能算——钱还没派，算进来会把股息率虚高一整期
+            if (exTime > now) {
                 continue
             }
             val shares = row.getDoubleValue("TOTAL_SHARES")
@@ -131,7 +145,7 @@ object DividendRepository {
             }
         }
         val perShare = if (latestShares > 0.0) totalCash / latestShares else 0.0
-        return DividendInfo(code, perShare.toFloat(), System.currentTimeMillis())
+        return DividendInfo(code, perShare.toFloat(), now)
     }
 
     /** 日期形如 2026-06-26 00:00:00，只取日期部分 */

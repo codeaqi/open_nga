@@ -1,7 +1,6 @@
 package sp.phone.ui.fragment;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.Menu;
@@ -12,9 +11,16 @@ import android.view.View;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 import gov.anzong.androidnga.R;
 import gov.anzong.androidnga.activity.ArticleCacheActivity;
 import gov.anzong.androidnga.base.util.ToastUtils;
+import gov.anzong.androidnga.cache.CacheFolderStore;
+import gov.anzong.androidnga.folder.FolderRepository;
 import sp.phone.mvp.model.entity.ThreadPageInfo;
 import sp.phone.mvp.model.entity.TopicListInfo;
 import sp.phone.param.ArticleListParam;
@@ -24,26 +30,92 @@ import sp.phone.ui.adapter.TopicListAdapter;
 import sp.phone.util.StringUtils;
 
 /**
+ * 我的缓存。
+ *
+ * 文件夹条、归类、搜索与收藏夹共用 {@link TopicFolderFragment}，
+ * 但分类是**另一套**，存在 CacheFolderStore 里，跟收藏夹互不影响。
+ *
  * @author Justwen
  */
-public class TopicCacheFragment extends TopicSearchFragment implements View.OnLongClickListener {
+public class TopicCacheFragment extends TopicFolderFragment {
+
+    @Override
+    protected FolderRepository folderStore() {
+        return CacheFolderStore.getInstance();
+    }
+
+    @Override
+    protected String itemNoun() {
+        return "缓存";
+    }
+
+    @Override
+    protected String rootTitle() {
+        return "我的缓存";
+    }
+
+    @Override
+    protected String folderTitle(String folder) {
+        return "我的缓存 - " + folder;
+    }
+
+    @Override
+    protected void deleteItem(ThreadPageInfo info) {
+        CacheFolderStore.getInstance().snapshot().forget(info.getTid());
+        CacheFolderStore.getInstance().save();
+        mPresenter.removeCacheTopic(info);
+    }
+
+    /**
+     * 缓存列表是一次性把 cache 目录全量读出来的，所以候选就是已加载的整份列表，
+     * 不像收藏夹那样还要另存一份快照。
+     */
+    @Override
+    protected List<ThreadPageInfo> searchCandidates() {
+        if (mTopicListInfo == null || mTopicListInfo.getThreadPageList() == null) {
+            return new ArrayList<>();
+        }
+        return mTopicListInfo.getThreadPageList();
+    }
 
     @Override
     public void onViewCreated(View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        ToastUtils.success("长按可删除缓存的帖子");
-        mAdapter.setOnLongClickListener(this);
+        CacheFolderStore.getInstance().load();
+        ToastUtils.success("长按帖子可归类或删除缓存");
         if (mAdapter instanceof TopicListAdapter) {
             ((TopicListAdapter) mAdapter).setShowNewReplyTag(true);
         }
         mPresenter.getRemovedTopic().observe(this, this::removeTopic);
+        renderFolderStrip();
     }
 
+    /**
+     * 磁盘上现存的帖子就是全集，顺手把指向已删缓存的归类记录清掉，
+     * 否则那些记录会一直躺在文件里。
+     */
     @Override
     public void setData(TopicListInfo result) {
-        super.setData(result);
+        mTopicListInfo = result;
+        List<ThreadPageInfo> pageList = result.getThreadPageList();
+        pruneFolders(pageList);
+        mAdapter.setData(filterForCurrentView(pageList));
         mAdapter.setNextPageEnabled(false);
         mSwipeRefreshLayout.setEnabled(false);
+        renderFolderStrip();
+        updateEmptyText();
+    }
+
+    private void pruneFolders(List<ThreadPageInfo> pageList) {
+        if (pageList == null || pageList.isEmpty()) {
+            return;
+        }
+        Set<Integer> tids = new HashSet<>();
+        for (ThreadPageInfo info : pageList) {
+            tids.add(info.getTid());
+        }
+        CacheFolderStore.getInstance().snapshot().pruneTo(tids);
+        CacheFolderStore.getInstance().save();
     }
 
     @Override
@@ -56,28 +128,17 @@ public class TopicCacheFragment extends TopicSearchFragment implements View.OnLo
         mAdapter.removeItem(pageInfo);
     }
 
-    @Override
-    public boolean onLongClick(final View view) {
-        final AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
-        builder.setMessage(this.getString(R.string.delete_favo_confirm_text))
-                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
-                    ThreadPageInfo info = (ThreadPageInfo) view.getTag();
-                    mPresenter.removeCacheTopic(info);
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .create()
-                .show();
-        return true;
-    }
+    // ==================== 菜单 ====================
 
     @Override
     public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
         inflater.inflate(R.menu.menu_cache_list, menu);
+        bindSearchView(menu, R.id.menu_cache_search);
         super.onCreateOptionsMenu(menu, inflater);
     }
 
     @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
+    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         switch (item.getItemId()) {
             case R.id.menu_cache_export:
                 mPresenter.exportCacheTopic(this);
@@ -153,5 +214,4 @@ public class TopicCacheFragment extends TopicSearchFragment implements View.OnLo
             super.onActivityResult(requestCode, resultCode, data);
         }
     }
-
 }

@@ -18,6 +18,7 @@ import gov.anzong.androidnga.ui.fragment.TopicListSimpleFragment;
 import sp.phone.param.ParamKey;
 import sp.phone.param.TopicListParam;
 import sp.phone.ui.fragment.TopicFavoriteFragment;
+import sp.phone.ui.fragment.TopicFolderFragment;
 import sp.phone.ui.fragment.TopicListFragment;
 import sp.phone.util.ActivityUtils;
 import sp.phone.util.StringUtils;
@@ -108,8 +109,8 @@ public class TopicListActivity extends BaseActivity {
     public void onBackPressed() {
         androidx.fragment.app.Fragment fragment =
                 getSupportFragmentManager().findFragmentById(android.R.id.content);
-        if (fragment instanceof TopicFavoriteFragment
-                && ((TopicFavoriteFragment) fragment).onBackPressedHandled()) {
+        if (fragment instanceof TopicFolderFragment
+                && ((TopicFolderFragment) fragment).onBackPressedHandled()) {
             return;
         }
         super.onBackPressed();

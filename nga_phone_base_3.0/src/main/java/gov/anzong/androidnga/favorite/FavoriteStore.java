@@ -13,6 +13,7 @@ import java.util.Map;
 
 import gov.anzong.androidnga.base.util.ContextUtils;
 import gov.anzong.androidnga.base.util.ThreadUtils;
+import gov.anzong.androidnga.folder.FolderRepository;
 import sp.phone.mvp.model.entity.ThreadPageInfo;
 
 /**
@@ -24,7 +25,7 @@ import sp.phone.mvp.model.entity.ThreadPageInfo;
  *
  * 单例常驻内存，写盘走子线程。
  */
-public class FavoriteStore {
+public class FavoriteStore implements FolderRepository {
 
     private static final String TAG = "FavoriteStore";
 
@@ -67,6 +68,7 @@ public class FavoriteStore {
     }
 
     /** 写盘。失败只记日志——丢一次快照不该打断用户浏览收藏 */
+    @Override
     public void save() {
         final String json = JSON.toJSONString(mSnapshot);
         ThreadUtils.postOnSubThread(() -> {
@@ -124,6 +126,38 @@ public class FavoriteStore {
             }
         }
         return parsed;
+    }
+
+    // ==================== FolderRepository ====================
+
+    @Override
+    public List<String> folders() {
+        return mSnapshot.folders;
+    }
+
+    @Override
+    public String folderOf(int tid) {
+        return mSnapshot.folderOf(tid);
+    }
+
+    @Override
+    public void setFolder(int tid, String folder) {
+        mSnapshot.setFolder(tid, folder);
+    }
+
+    @Override
+    public boolean createFolder(String name) {
+        return mSnapshot.createFolder(name);
+    }
+
+    @Override
+    public boolean renameFolder(String oldName, String newName) {
+        return mSnapshot.renameFolder(oldName, newName);
+    }
+
+    @Override
+    public void deleteFolder(String name) {
+        mSnapshot.deleteFolder(name);
     }
 
     /**

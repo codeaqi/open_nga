@@ -1,6 +1,7 @@
 package sp.phone.util;
 
 
+import gov.anzong.androidnga.core.NgaImageHosts;
 import android.graphics.Bitmap;
 import android.os.Build;
 
@@ -22,7 +23,8 @@ import gov.anzong.androidnga.common.util.NLog;
 
 public class HttpUtil {
 
-    public static final String NGA_ATTACHMENT_HOST = "img.nga.178.com"; //img.ngacn.cc";
+    /** 旧的 img.nga.178.com 已于 2026-09 下线，见 NgaImageHosts */
+    public static final String NGA_ATTACHMENT_HOST = NgaImageHosts.ATTACHMENT_HOST;
     public static final String Servlet_phone = "/servlet/PhoneServlet";
     public static final String Servlet_timer = "/servlet/TimerServlet";
     private static final String[] servers = {"https://nga.178.com", "https://bbs.ngacn.cc"};

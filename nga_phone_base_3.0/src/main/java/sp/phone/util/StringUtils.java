@@ -1,5 +1,6 @@
 package sp.phone.util;
 
+import gov.anzong.androidnga.core.NgaImageHosts;
 import android.annotation.SuppressLint;
 import android.content.res.AssetManager;
 
@@ -231,6 +232,8 @@ public class StringUtils {
                                         int imageQuality, @Nullable List<String> imageUrls) {
         if (StringUtils.isEmpty(ret))
             return "";
+        // 签名、短消息里的旧图片域名已下线，先改写成新的
+        ret = NgaImageHosts.rewriteRetiredHosts(ret);
         // s = StringUtils.unEscapeHtml(s);
         String quoteStyle = "<div style='background:#E8E8E8;padding:5px;border:1px solid #888' >";
         if (ThemeManager.getInstance().isNightMode())

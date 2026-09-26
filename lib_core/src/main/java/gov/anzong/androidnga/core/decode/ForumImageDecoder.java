@@ -1,5 +1,6 @@
 package gov.anzong.androidnga.core.decode;
 
+import gov.anzong.androidnga.core.NgaImageHosts;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -32,7 +33,7 @@ public class ForumImageDecoder implements IForumDecoder {
 
     private static final String REPLACE_IMG_WITH_HTTP = "<a href='$1'><img src='$1'></a>";
 
-    private static final String NGA_ATTACHMENT_HOST = "img.nga.178.com";
+    private static final String NGA_ATTACHMENT_HOST = NgaImageHosts.ATTACHMENT_HOST;
 
     @Override
     public String decode(String content) {
@@ -41,6 +42,8 @@ public class ForumImageDecoder implements IForumDecoder {
 
     @Override
     public String decode(String content, HtmlData htmlData) {
+        // 正文里直接贴的旧域名完整地址、本地缓存的老帖子都还指着已下线的域名
+        content = NgaImageHosts.rewriteRetiredHosts(content);
         String replace = String.format(REPLACE_IMG_NO_HTTP, NGA_ATTACHMENT_HOST, "$1");
         content = StringUtils.replaceAll(content, REGEX_IMG_NO_HTTP, replace);
         content = StringUtils.replaceAll(content, REGEX_IMG_WITH_HTTP, REPLACE_IMG_WITH_HTTP);

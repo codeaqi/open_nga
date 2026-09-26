@@ -2,9 +2,9 @@ package sp.phone.common;
 
 public interface ApiConstants {
 
-    String URL_BOARD_ICON = "http://img4.nga.178.com/ngabbs/nga_classic/f/app/%s.png";
+    String URL_BOARD_ICON = "http://img4.nga.cn/ngabbs/nga_classic/f/app/%s.png";
 
-    String URL_BOARD_ICON_STID = "https://img4.nga.178.com/proxy/cache_attach/ficon/%sv.png";
+    String URL_BOARD_ICON_STID = "https://img4.nga.cn/proxy/cache_attach/ficon/%sv.png";
 
     int NGA_NOTIFICATION_TYPE_TOPIC_REPLY = 1;
 

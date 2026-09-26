@@ -156,13 +156,13 @@ public class TopicCacheFragment extends TopicFolderFragment {
     }
 
     /**
-     * 手动检查所有缓存帖子有没有新回复。
+     * 顶栏「缓存」按钮：把所有缓存帖子的新回复补下来。
      *
-     * 后台调度器是限速的（每 15 秒一个请求，慢慢轮转），这里是用户主动触发的全量检查，
-     * 不限速地把所有帖子跑一遍，图的是立刻出结果。执行期间调度器会自动让路。
+     * 这是缓存更新的唯一入口，后台不会自动跑。不限速地把所有帖子跑一遍，
+     * 图的是点完立刻出结果。
      */
     private void updateCacheTopics() {
-        ToastUtils.info("正在检查新回复…");
+        ToastUtils.info("正在缓存新回复…");
         TopicCacheUpdateTask.execute(hasUpdate -> {
             if (!isAdded()) {
                 return;

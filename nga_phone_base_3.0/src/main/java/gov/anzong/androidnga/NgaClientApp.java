@@ -31,14 +31,12 @@ import gov.anzong.androidnga.db.AppDatabase;
 import sp.phone.common.UserManagerImpl;
 import sp.phone.common.VersionUpgradeHelper;
 import sp.phone.task.CheckInTask;
-import sp.phone.task.TopicCacheUpdateTask;
 
 public class NgaClientApp extends Application {
 
     private static final String TAG = NgaClientApp.class.getSimpleName();
 
     /** 缓存更新的启动延迟，让出冷启动阶段的资源 */
-    private static final long DELAY_UPDATE_CACHE = 5000L;
 
     /** 知乎预热比帖子缓存更晚一点，避免和启动、缓存更新抢资源 */
     private static final long DELAY_PRELOAD_ZHIHU = 8000L;
@@ -56,7 +54,7 @@ public class NgaClientApp extends Application {
         initCoreModule();
         initRouter();
         checkIn();
-        registerForegroundCacheUpdate();
+        registerForegroundPreload();
         super.onCreate();
 
         // fixWebViewMultiProcessException();
@@ -131,10 +129,12 @@ public class NgaClientApp extends Application {
     }
 
     /**
-     * 增量更新已缓存的帖子。调度器只在前台跑，每 15 秒一个请求慢慢轮转，
-     * 退到后台就暂停、进度保留；延迟启动以错开启动高峰。
+     * 回到前台时做的预热。
+     *
+     * 这里原先还会启动已缓存帖子的限速增量更新，现已去掉：缓存只在用户于
+     * 「我的缓存」点「缓存」时才跑，不在后台自动发请求。
      */
-    private void registerForegroundCacheUpdate() {
+    private void registerForegroundPreload() {
         registerActivityLifecycleCallbacks(new SimpleActivityLifecycleCallbacks() {
 
             private int mStartedCount;
@@ -144,9 +144,6 @@ public class NgaClientApp extends Application {
                 mStartedCount++;
                 if (mStartedCount == 1) {
                     // 数量从 0 变 1，说明刚回到前台（冷启动首次打开界面也属于这种情况）
-                    ThreadUtils.postOnMainThreadDelay(
-                            TopicCacheUpdateTask::onEnterForeground,
-                            DELAY_UPDATE_CACHE);
                     // 预热知乎热搜和前几条的回答，用户点进去时直接就有内容。
                     // 内部自己判断缓存是否过期，不会每次都真的联网。
                     ThreadUtils.postOnMainThreadDelay(
@@ -158,9 +155,6 @@ public class NgaClientApp extends Application {
             @Override
             public void onActivityStopped(@NonNull Activity activity) {
                 mStartedCount--;
-                if (mStartedCount == 0) {
-                    TopicCacheUpdateTask.onEnterBackground();
-                }
             }
         });
     }

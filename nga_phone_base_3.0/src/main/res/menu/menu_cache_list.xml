@@ -2,16 +2,17 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <!-- 放在搜索前面，顶栏里就排在搜索左边。缓存只在点这里时才跑，不再后台自动跑 -->
+    <item
+        android:id="@+id/menu_cache_update"
+        android:title="缓存"
+        app:showAsAction="always" />
+
     <item
         android:id="@+id/menu_cache_search"
         android:title="@string/search"
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="always|collapseActionView" />
-
-    <item
-        android:id="@+id/menu_cache_update"
-        android:title="检查新回复"
-        app:showAsAction="never" />
 
     <item
         android:id="@+id/menu_cache_import"

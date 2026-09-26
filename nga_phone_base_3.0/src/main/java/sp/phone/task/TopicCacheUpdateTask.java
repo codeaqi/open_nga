@@ -28,12 +28,13 @@ import sp.phone.rxjava.RxLifecycleProvider;
  *
  * 两种模式：
  *
- * 1. **限速调度**（默认）：app 在前台时每 {@link #TICK_INTERVAL} 只发一个请求，
- *    按 {@link CacheUpdateQueue} 的「最久没检查优先」顺序轮转。目的是把请求摊平在
- *    时间轴上，而不是回到前台时集中打一批。退到后台就暂停，进度不丢。
+ * 1. **限速调度**：app 在前台时每 {@link #TICK_INTERVAL} 只发一个请求，
+ *    按 {@link CacheUpdateQueue} 的「最久没检查优先」顺序轮转。
+ *    **目前没有启用**——用户不希望后台自动缓存，NgaClientApp 已不再调用
+ *    {@link #onEnterForeground}。代码留着是为了以后想恢复时只需加回那一处调用。
  *
- * 2. **手动全量**：用户点「检查新回复」时不限速地跑完所有帖子。这里图的是立刻出结果，
- *    按 15 秒一个的话几十个帖子要等十几分钟，没法用。
+ * 2. **手动全量**：用户在「我的缓存」点「缓存」时不限速地跑完所有帖子。这里图的是
+ *    立刻出结果，按 15 秒一个的话几十个帖子要等十几分钟，没法用。这是现在唯一的入口。
  *
  * 两种模式互斥：手动跑的时候调度器让路，避免同时写同一个 json。
  * 帖子下载（{@link TopicCacheAllTask}）跑的时候两者都让路，见 {@link #setDownloadRunning}。

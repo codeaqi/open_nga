@@ -40,6 +40,14 @@ object DividendRepository {
     /** 只统计已实施的分红，预案和停止实施的不算 */
     private const val PROGRESS_DONE = "实施分配"
 
+    /**
+     * 最近一个派完的年度超过这个岁数就当它已经停止分红。
+     *
+     * 年报分红一般在次年年中除权，所以正常公司这个间隔不会超过一年；
+     * 放到 18 个月是给派息偏晚的公司留余量。
+     */
+    private val STALE_AFTER_MS = TimeUnit.DAYS.toMillis(548)
+
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -93,10 +101,15 @@ object DividendRepository {
     }
 
     /**
-     * 累加近12个月内已实施的分红。
+     * 算出每股股息。
      *
-     * 用「各期现金总额之和 / 最新总股本」而不是简单累加每股派息——有回购或增发时
-     * 各期股本不同，行情软件用的是前者，这样算出来的数才和它们对得上。
+     * 口径是**最近一个已经派完的会计年度**，而不是近12个月的滚动窗口。滚动窗口在
+     * 一年多派的股票上会错位：中国移动 6 月、9 月各派一次，2026-09-06 这天窗口起点
+     * 刚越过 2025-09-01 那期，而当年 9 月那期还没除权，窗口里只剩一期，股息率直接
+     * 腰斩成 2.19%。按年度汇总就不会随日子跳。
+     *
+     * 判定「派完」的标志是该年度的年报（REPORT_DATE 为 12 月）那期已经除权。
+     * 没有任何年报分红的公司（只发中期、或刚上市）退回近12个月口径。
      *
      * [now] 只为测试可注入，正常调用取当前时间。
      */
@@ -112,41 +125,83 @@ object DividendRepository {
         val rows = result.getJSONArray("data")
             ?: return DividendInfo(code, 0f, now)
 
-        val cutoff = Calendar.getInstance().apply {
-            timeInMillis = now
-            add(Calendar.YEAR, -1)
-        }.timeInMillis
-        var totalCash = 0.0
-        var latestShares = 0.0
+        val payouts = ArrayList<Payout>()
         for (i in 0 until rows.size) {
             val row = rows.getJSONObject(i) ?: continue
             if (row.getString("ASSIGN_PROGRESS") != PROGRESS_DONE) {
                 continue
             }
-            val exDate = row.getString("EX_DIVIDEND_DATE") ?: continue
-            val exTime = parseDate(exDate)
-            if (exTime < cutoff) {
-                continue
-            }
+            val exTime = parseDate(row.getString("EX_DIVIDEND_DATE") ?: continue)
             // 已公告但除权日还没到的那期不能算——钱还没派，算进来会把股息率虚高一整期
-            if (exTime > now) {
+            if (exTime == 0L || exTime > now) {
                 continue
             }
             val shares = row.getDoubleValue("TOTAL_SHARES")
             if (shares <= 0.0) {
                 continue
             }
+            val report = row.getString("REPORT_DATE") ?: continue
+            val year = report.substring(0, 4).toIntOrNull() ?: continue
+            val month = report.substring(5, 7).toIntOrNull() ?: continue
             // 接口给的是每 10 股派息
             val perShare = row.getDoubleValue("PRETAX_BONUS_RMB") / 10.0
-            totalCash += perShare * shares
-            // 列表按除权日倒序，第一条即最新股本
-            if (latestShares == 0.0) {
-                latestShares = shares
-            }
+            payouts.add(Payout(exTime, year, month, perShare, shares))
         }
-        val perShare = if (latestShares > 0.0) totalCash / latestShares else 0.0
+
+        val perShare = latestCompleteFiscalYear(payouts, now) ?: trailingTwelveMonths(payouts, now)
         return DividendInfo(code, perShare.toFloat(), now)
     }
+
+    /**
+     * 最近一个已派完的会计年度的每股股息，没有这样的年度时返回 null。
+     *
+     * 年度太久远说明这家公司早就不分红了，拿陈年数据充数会让人以为还有高息，
+     * 这种情况一并返回 null，交给近12个月口径算出 0。
+     */
+    private fun latestCompleteFiscalYear(payouts: List<Payout>, now: Long): Double? {
+        val byYear = payouts.groupBy { it.reportYear }
+        val year = byYear.entries
+            .filter { entry -> entry.value.any { it.reportMonth == 12 } }
+            .maxOfOrNull { it.key } ?: return null
+        val yearPayouts = byYear.getValue(year)
+        if (now - yearPayouts.maxOf { it.exTime } > STALE_AFTER_MS) {
+            return null
+        }
+        return weightedPerShare(yearPayouts)
+    }
+
+    /** 兜底口径：近12个月内已除权的分红 */
+    private fun trailingTwelveMonths(payouts: List<Payout>, now: Long): Double {
+        val cutoff = Calendar.getInstance().apply {
+            timeInMillis = now
+            add(Calendar.YEAR, -1)
+        }.timeInMillis
+        return weightedPerShare(payouts.filter { it.exTime >= cutoff })
+    }
+
+    /**
+     * 用「各期现金总额之和 / 最新总股本」而不是简单累加每股派息——有回购或增发时
+     * 各期股本不同，行情软件用的是前者，这样算出来的数才和它们对得上。
+     */
+    private fun weightedPerShare(payouts: List<Payout>): Double {
+        if (payouts.isEmpty()) {
+            return 0.0
+        }
+        val sorted = payouts.sortedByDescending { it.exTime }
+        val totalCash = sorted.sumOf { it.perShare * it.shares }
+        // 最新一期的股本即当前股本
+        return totalCash / sorted.first().shares
+    }
+
+    /** 已实施的一期分红 */
+    private data class Payout(
+        val exTime: Long,
+        /** 分红对应的报告期年份，12 月的那期是年报 */
+        val reportYear: Int,
+        val reportMonth: Int,
+        val perShare: Double,
+        val shares: Double
+    )
 
     /** 日期形如 2026-06-26 00:00:00，只取日期部分 */
     private fun parseDate(text: String): Long {

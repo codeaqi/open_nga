@@ -78,6 +78,12 @@ private val TagFontSize = 9.sp
 /** 档位标签自动缩字号的下限，再小就看不清了，宁可让尾部裁掉 */
 private val TagFontSizeMin = 6.sp
 
+/** 股票名称的正常字号 */
+private val NameFontSize = 18.sp
+
+/** 名称缩字号的下限，再长的名字就用省略号收尾 */
+private val NameFontSizeMin = 13.sp
+
 private fun colorOf(changePercent: Float): Color = when {
     changePercent > 0 -> ColorUp
     changePercent < 0 -> ColorDown
@@ -564,11 +570,30 @@ private fun StockItem(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.weight(1.9f)
             ) {
+                // 「红利低波50ETF南方」这类中英混排的名字，默认换行会在「波」和「50」之间
+                // 断行，maxLines=1 再把后半截整个裁掉，只剩「红利低波」且没有省略号。
+                // 所以不许换行，放不下先缩字号，缩到下限还放不下才用省略号。
+                var nameFontSize by remember(stock.name) { mutableStateOf(NameFontSize) }
+                var nameMeasured by remember(stock.name) { mutableStateOf(false) }
                 Text(
                     text = stock.name,
-                    fontSize = 18.sp,
+                    fontSize = nameFontSize,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { result ->
+                        if (result.hasVisualOverflow && nameFontSize > NameFontSizeMin) {
+                            nameFontSize *= 0.92f
+                        } else {
+                            nameMeasured = true
+                        }
+                    },
+                    modifier = Modifier.drawWithContent {
+                        if (nameMeasured) {
+                            drawContent()
+                        }
+                    },
                     color = MaterialTheme.colors.onBackground,
                     // 光晕：同色柔光扩散一圈，让名字更立体
                     style = LocalTextStyle.current.copy(

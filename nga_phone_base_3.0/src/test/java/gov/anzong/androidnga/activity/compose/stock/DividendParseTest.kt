@@ -77,6 +77,49 @@ class DividendParseTest {
         assertEquals(0f, info.perShareDividend, 0.001f)
     }
 
+    /** 515450 近12个月：2026-09 0.015 + 2026-07 0.01 + 2025-12 0.03 */
+    @Test
+    fun `ETF 按近12个月累计每份分红`() {
+        val info = DividendRepository.parseFund("sh515450", ETF_515450_JSON, at(2026, 10, 11))!!
+        assertEquals(0.055f, info.perShareDividend, 0.0001f)
+    }
+
+    /** 年派一次的基金今年还没派，不能归零，退回到最近一次派息的那一年 */
+    @Test
+    fun `年派基金除息日推迟时不归零`() {
+        val json = """{"Datas":[
+{"FSRQ":"2025-12-17","FHFCZ":"0.08","FHFCBZ":"0"},
+{"FSRQ":"2024-12-02","FHFCZ":"0.055","FHFCBZ":"0"}],"ErrCode":0}"""
+        // 2025-12-10：去年 12-02 那期刚滑出窗口，今年 12-17 那期还没除息
+        val info = DividendRepository.parseFund("sh510050", json, at(2025, 12, 10))!!
+        assertEquals(0.055f, info.perShareDividend, 0.0001f)
+    }
+
+    /** 份额 1 拆 5 之前派的 0.5，换算到现在每份是 0.1 */
+    @Test
+    fun `份额分拆前的分红按比例折算`() {
+        val json = """{"Datas":[
+{"FSRQ":"2026-06-01","FHFCZ":"5","FHFCBZ":"105","Remarks":"份额分拆"},
+{"FSRQ":"2026-03-01","FHFCZ":"0.5","FHFCBZ":"0","Remarks":"分红"}],"ErrCode":0}"""
+        val info = DividendRepository.parseFund("sh513100", json, at(2026, 10, 11))!!
+        assertEquals(0.1f, info.perShareDividend, 0.0001f)
+    }
+
+    @Test
+    fun `从不分红的 ETF 算 0`() {
+        val json = """{"Datas":[{"FSRQ":"2011-11-30","FHFCZ":"1.14558776","FHFCBZ":"106","Remarks":"份额折算"}],"ErrCode":0}"""
+        val info = DividendRepository.parseFund("sz159915", json, at(2026, 10, 11))!!
+        assertEquals(0f, info.perShareDividend, 0.0001f)
+    }
+
+    @Test
+    fun `按代码区分基金和股票`() {
+        assertEquals(true, DividendRepository.isFund("sh515450"))
+        assertEquals(true, DividendRepository.isFund("sz159915"))
+        assertEquals(false, DividendRepository.isFund("sh600941"))
+        assertEquals(false, DividendRepository.isFund("sz000001"))
+    }
+
     private fun at(year: Int, month: Int, day: Int): Long {
         return Calendar.getInstance().apply {
             set(year, month - 1, day, 12, 0, 0)
@@ -85,6 +128,14 @@ class DividendParseTest {
     }
 
     companion object {
+        /** 天天基金 FundBonusList 的真实返回（515450），只留用到的字段 */
+        private const val ETF_515450_JSON = """{"Datas":[
+{"FSRQ":"2026-09-09","FHFCZ":"0.015","FHFCBZ":"0"},
+{"FSRQ":"2026-07-15","FHFCZ":"0.01","FHFCBZ":"0"},
+{"FSRQ":"2025-12-15","FHFCZ":"0.03","FHFCBZ":"0"},
+{"FSRQ":"2025-07-15","FHFCZ":"0.045","FHFCBZ":"0"},
+{"FSRQ":"2024-12-17","FHFCZ":"0.055","FHFCBZ":"0"}],"ErrCode":0}"""
+
         /** 东方财富 RPT_SHAREBONUS_DET 的真实返回，只留用到的字段 */
         private const val PING_AN_JSON = """
 {"result":{"data":[

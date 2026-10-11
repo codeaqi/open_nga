@@ -9,7 +9,8 @@ import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 /**
- * 股息率数据源。分红明细来自东方财富数据中心的公开接口。
+ * 股息率数据源。股票分红明细来自东方财富数据中心的公开接口，
+ * ETF/LOF 的分红来自天天基金接口（见 [parseFund]）。
  *
  * 口径与行情软件一致：近12个月已实施的现金分红总额 / 最新总股本 / 最新价。
  * 分红一年才变一两次，所以每股股息按天缓存，只有股价变化时在本地重算股息率。
@@ -18,7 +19,8 @@ object DividendRepository {
 
     private const val TAG = "DividendRepository"
 
-    private const val KEY_DIVIDEND_CACHE = "stock_dividend_cache"
+    /** v2：之前 ETF 走股票接口查不到，缓存了 0，换个 key 让它们重新拉 */
+    private const val KEY_DIVIDEND_CACHE = "stock_dividend_cache_v2"
 
     /** 分红数据一天刷新一次足够 */
     private val CACHE_TTL = TimeUnit.DAYS.toMillis(1)
@@ -36,6 +38,17 @@ object DividendRepository {
 
     /** 接口校验来源 */
     private const val REFERER = "https://data.eastmoney.com/"
+
+    /**
+     * 基金（ETF/LOF）分红走天天基金的接口，股票那个报表里查不到基金。
+     * FSRQ 是除息日，FHFCZ 是每份派现（元）。
+     */
+    private const val FUND_BONUS_URL =
+        "https://fundmobapi.eastmoney.com/FundMApi/FundBonusList.ashx" +
+                "?deviceid=Wap&plat=Wap&product=EFund&version=6.2.8&FCODE="
+
+    /** FHFCBZ 为 0 是现金分红，其余是份额分拆/折算，此时 FHFCZ 是折算比例 */
+    private const val FUND_TYPE_CASH = "0"
 
     /** 只统计已实施的分红，预案和停止实施的不算 */
     private const val PROGRESS_DONE = "实施分配"
@@ -79,8 +92,14 @@ object DividendRepository {
     fun fetchDividend(code: String): DividendInfo? {
         return try {
             val simpleCode = if (code.length > 2) code.substring(2) else code
+            val fund = isFund(code)
+            val url = if (fund) {
+                FUND_BONUS_URL + simpleCode
+            } else {
+                BONUS_URL_PREFIX + simpleCode + BONUS_URL_SUFFIX
+            }
             val request = Request.Builder()
-                .url(BONUS_URL_PREFIX + simpleCode + BONUS_URL_SUFFIX)
+                .url(url)
                 .header("Referer", REFERER)
                 .build()
             client.newCall(request).execute().use { response ->
@@ -89,7 +108,7 @@ object DividendRepository {
                     return null
                 }
                 val body = response.body?.string() ?: return null
-                val info = parse(code, body) ?: return null
+                val info = (if (fund) parseFund(code, body) else parse(code, body)) ?: return null
                 memoryCache[code] = info
                 saveCache(memoryCache)
                 info
@@ -192,6 +211,86 @@ object DividendRepository {
         // 最新一期的股本即当前股本
         return totalCash / sorted.first().shares
     }
+
+    /** 沪市 5 开头、深市 1 开头的是场内基金，见 [StockRepository.normalizeCode] */
+    internal fun isFund(code: String): Boolean {
+        if (code.length != 8) {
+            return false
+        }
+        return (code.startsWith("sh") && code[2] == '5') || (code.startsWith("sz") && code[2] == '1')
+    }
+
+    /**
+     * 算出基金每份的分红。
+     *
+     * 基金没有会计年度分红这回事，按月、按季、按年派的都有，所以用行情软件通行的
+     * 近12个月口径：除息日落在过去一年内的现金分红之和。
+     *
+     * 一年一派的基金除息日每年会前后漂几天，晚派的那几天窗口里一期都没有，
+     * 股息率会突然归零。这时退回到以最近一次除息日为终点的12个月，
+     * 前提是那次分红不算太久远。
+     *
+     * 窗口内如有份额分拆/折算，之前派的钱要除以折算比例换算成现在的每份。
+     */
+    internal fun parseFund(
+        code: String,
+        body: String,
+        now: Long = System.currentTimeMillis()
+    ): DividendInfo? {
+        val root = JSON.parseObject(body) ?: return null
+        if (root.getIntValue("ErrCode") != 0) {
+            return null
+        }
+        // 从没分过红的基金 Datas 是空的，正常情况，记为 0
+        val rows = root.getJSONArray("Datas") ?: return DividendInfo(code, 0f, now)
+
+        val cash = ArrayList<FundEvent>()
+        val splits = ArrayList<FundEvent>()
+        for (i in 0 until rows.size) {
+            val row = rows.getJSONObject(i) ?: continue
+            val time = parseDate(row.getString("FSRQ") ?: continue)
+            // 已公告但还没除息的不算
+            if (time == 0L || time > now) {
+                continue
+            }
+            val value = row.getString("FHFCZ")?.toDoubleOrNull() ?: continue
+            if (value <= 0.0) {
+                continue
+            }
+            if (row.getString("FHFCBZ") == FUND_TYPE_CASH) {
+                cash.add(FundEvent(time, value))
+            } else {
+                splits.add(FundEvent(time, value))
+            }
+        }
+        if (cash.isEmpty()) {
+            return DividendInfo(code, 0f, now)
+        }
+
+        var window = cash.filter { it.time > oneYearBefore(now) }
+        if (window.isEmpty()) {
+            val latest = cash.maxOf { it.time }
+            if (now - latest <= STALE_AFTER_MS) {
+                window = cash.filter { it.time > oneYearBefore(latest) }
+            }
+        }
+        val perUnit = window.sumOf { payout ->
+            val ratio = splits.filter { it.time > payout.time }
+                .fold(1.0) { acc, split -> acc * split.value }
+            payout.value / ratio
+        }
+        return DividendInfo(code, perUnit.toFloat(), now)
+    }
+
+    private fun oneYearBefore(time: Long): Long {
+        return Calendar.getInstance().apply {
+            timeInMillis = time
+            add(Calendar.YEAR, -1)
+        }.timeInMillis
+    }
+
+    /** 基金的一次现金分红（value 为每份派现）或份额折算（value 为折算比例） */
+    private data class FundEvent(val time: Long, val value: Double)
 
     /** 已实施的一期分红 */
     private data class Payout(

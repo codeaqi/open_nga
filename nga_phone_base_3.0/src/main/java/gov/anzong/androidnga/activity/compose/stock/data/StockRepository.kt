@@ -194,7 +194,8 @@ object StockRepository {
 
     /**
      * 把用户输入的 6 位代码补全为带市场前缀的形式。
-     * 6 开头为沪市，0/3 开头为深市，8/4 开头为北交所。
+     * 6 开头为沪市，0/3 开头为深市，8/4 开头为北交所；
+     * 5 开头为沪市基金（ETF/LOF），1 开头为深市基金。
      */
     fun normalizeCode(input: String): String? {
         val code = input.trim().lowercase()
@@ -205,8 +206,8 @@ object StockRepository {
             return null
         }
         return when (code.first()) {
-            '6' -> "sh$code"
-            '0', '3' -> "sz$code"
+            '6', '5' -> "sh$code"
+            '0', '3', '1' -> "sz$code"
             '8', '4' -> "bj$code"
             else -> null
         }
